@@ -1,0 +1,14 @@
+{
+    "tolerance": 0.6,
+    "gpio_pin": 17,
+    "camera_index": 0,
+    "frame_skip": 2,
+    "camera_warmup_seconds": 2,
+    "sleep_after_detection_seconds": 5,
+    "tts_language": "en",
+    "tts_speed": 160,
+    "log_to_file": true,
+    "log_file": "logs/security.log",
+    "unknown_risk_medium_threshold": 3,
+    "unknown_risk_high_threshold": 5
+}

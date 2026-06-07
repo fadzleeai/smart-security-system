@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Known faces (personal data — don't commit)
+known_faces/
+
+# Stranger images (auto-captured — don't commit)
+strangers/
+
+# Logs
+logs/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db
