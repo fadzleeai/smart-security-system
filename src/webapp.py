@@ -46,7 +46,7 @@ def get_camera():
     global camera, camera_available
     with camera_lock:
         if camera is None or not camera.isOpened():
-            camera = cv2.VideoCapture(config.get("camera_index", 0))
+            camera = cv2.VideoCapture(config.get("camera_index", 0), cv2.CAP_V4L2)
             camera_available = camera.isOpened()
         return camera
 
