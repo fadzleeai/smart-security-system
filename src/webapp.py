@@ -42,6 +42,14 @@ camera = None
 camera_lock = threading.Lock()
 camera_available = False
 
+def check_camera():
+    global camera_available
+    cap = cv2.VideoCapture(config.get("camera_index", 0), cv2.CAP_V4L2)
+    camera_available = cap.isOpened()
+    cap.release()
+
+check_camera()
+
 def get_camera():
     global camera, camera_available
     with camera_lock:
