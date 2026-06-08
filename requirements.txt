@@ -4,3 +4,4 @@ numpy==1.26.4
 pyttsx3==2.90
 flask==3.0.3
 RPi.GPIO==0.7.1; sys_platform == "linux"
+picamera2; sys_platform == "linux"

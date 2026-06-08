@@ -35,73 +35,93 @@ app.secret_key = os.urandom(24)
 logger = logging.getLogger(__name__)
 
 # =========================================
-# CAMERA STREAM (RPi camera)
+# CAMERA BACKEND — picamera2 or OpenCV
 # =========================================
 
-camera = None
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+    logger.info("picamera2 available — using RPi CSI camera backend.")
+except ImportError:
+    PICAMERA2_AVAILABLE = False
+    logger.info("picamera2 not available — using OpenCV backend.")
+
 camera_lock = threading.Lock()
 camera_available = False
+picam = None
+opencv_cam = None
 
-def check_camera():
-    global camera_available
-    cap = cv2.VideoCapture(config.get("camera_index", 0), cv2.CAP_V4L2)
-    camera_available = cap.isOpened()
-    cap.release()
+def init_camera():
+    global camera_available, picam, opencv_cam
 
-check_camera()
+    if PICAMERA2_AVAILABLE:
+        try:
+            picam = Picamera2()
+            cfg = picam.create_video_configuration(
+                main={"size": (640, 480), "format": "RGB888"}
+            )
+            picam.configure(cfg)
+            picam.start()
+            time.sleep(1)
+            camera_available = True
+            logger.info("picamera2 started successfully.")
+        except Exception as e:
+            logger.error(f"picamera2 failed: {e}")
+            camera_available = False
+    else:
+        opencv_cam = cv2.VideoCapture(config.get("camera_index", 0), cv2.CAP_V4L2)
+        camera_available = opencv_cam.isOpened()
+        logger.info(f"OpenCV camera available: {camera_available}")
 
-def get_camera():
-    global camera, camera_available
-    with camera_lock:
-        if camera is None or not camera.isOpened():
-            camera = cv2.VideoCapture(config.get("camera_index", 0), cv2.CAP_V4L2)
-            camera_available = camera.isOpened()
-        return camera
+def read_frame():
+    """Read a single frame from whichever backend is active."""
+    if PICAMERA2_AVAILABLE and picam:
+        frame = picam.capture_array()
+        # picamera2 returns RGB, convert to BGR for OpenCV
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        return True, frame
+    elif opencv_cam and opencv_cam.isOpened():
+        return opencv_cam.read()
+    return False, None
 
 def generate_frames():
     global camera_available
-    cam = get_camera()
-    if not cam.isOpened():
-        camera_available = False
-        return
-
     while True:
         with camera_lock:
-            success, frame = cam.read()
-        if not success:
+            ret, frame = read_frame()
+
+        if not ret or frame is None:
             camera_available = False
             break
 
-        camera_available = True
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
+        ret2, buffer = cv2.imencode('.jpg', frame)
+        if not ret2:
             continue
 
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         time.sleep(0.033)
 
+# Init camera on startup
+init_camera()
+
 # =========================================
 # HELPERS
 # =========================================
 
 def decode_base64_image(data_url: str):
-    """Convert base64 data URL from browser to OpenCV image."""
     header, encoded = data_url.split(',', 1)
     img_bytes = base64.b64decode(encoded)
     img_array = np.frombuffer(img_bytes, np.uint8)
     return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
 def validate_and_save_face(img, name: str) -> tuple[bool, str]:
-    """Check face exists in image and save to known_faces. Returns (success, message)."""
     if img is None:
         return False, "Could not read image."
-
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     locs = face_recognition.face_locations(rgb)
     if not locs:
         return False, "No face detected. Try again."
-
     os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
     path = os.path.join(KNOWN_FACES_DIR, f"{name}.jpg")
     cv2.imwrite(path, img)
@@ -209,31 +229,24 @@ def register():
             return redirect(url_for("register"))
 
         if source == "local":
-            # Browser webcam capture — comes as base64 data URL
             data_url = request.form.get("captured_image", "")
             if not data_url or not data_url.startswith("data:image"):
                 flash("No photo captured. Please capture a photo first.")
                 return redirect(url_for("register"))
-
             img = decode_base64_image(data_url)
             ok, msg = validate_and_save_face(img, name)
             flash(msg)
             return redirect(url_for("register"))
 
         elif source == "rpi":
-            # Capture from RPi camera server-side
-            cam = get_camera()
-            if not cam.isOpened():
+            if not camera_available:
                 flash("RPi camera is offline.")
                 return redirect(url_for("register"))
-
             with camera_lock:
-                ret, frame = cam.read()
-
+                ret, frame = read_frame()
             if not ret:
                 flash("Failed to capture from RPi camera.")
                 return redirect(url_for("register"))
-
             ok, msg = validate_and_save_face(frame, name)
             flash(msg)
             return redirect(url_for("register"))
