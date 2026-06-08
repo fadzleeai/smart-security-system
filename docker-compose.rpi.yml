@@ -16,6 +16,8 @@ services:
     volumes:
       - /usr/lib/python3/dist-packages:/usr/lib/python3/dist-packages:ro
       - /usr/share/libcamera:/usr/share/libcamera:ro
+      - /usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:ro
+      - /run/udev:/run/udev:ro
     environment:
       - PYTHONPATH=/usr/lib/python3/dist-packages
 
@@ -27,12 +29,18 @@ services:
     volumes:
       - /usr/lib/python3/dist-packages:/usr/lib/python3/dist-packages:ro
       - /usr/share/libcamera:/usr/share/libcamera:ro
+      - /usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:ro
+      - /run/udev:/run/udev:ro
     environment:
       - PYTHONPATH=/usr/lib/python3/dist-packages
 
   register:
     devices:
       - /dev/video0:/dev/video0
+      - /dev/media0:/dev/media0
+      - /dev/media1:/dev/media1
+    volumes:
+      - /run/udev:/run/udev:ro
 
   admin:
     devices:
