@@ -11,10 +11,20 @@ services:
       - /dev/gpiomem:/dev/gpiomem
     group_add:
       - audio
+    volumes:
+      - /usr/lib/python3/dist-packages:/usr/lib/python3/dist-packages:ro
+      - /usr/share/libcamera:/usr/share/libcamera:ro
+      - /dev/media0:/dev/media0
+      - /dev/media2:/dev/media2
 
   web:
     devices:
       - /dev/video0:/dev/video0
+    volumes:
+      - /usr/lib/python3/dist-packages:/usr/lib/python3/dist-packages:ro
+      - /usr/share/libcamera:/usr/share/libcamera:ro
+      - /dev/media0:/dev/media0
+      - /dev/media2:/dev/media2
 
   register:
     devices:

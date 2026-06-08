@@ -16,10 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     alsa-utils \
     curl \
     python3-dev \
-    # picamera2 dependencies
-    libcamera-dev \
-    python3-libcamera \
-    python3-kms++ \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://raw.githubusercontent.com/dylanaraps/neofetch/master/neofetch \
        -o /usr/local/bin/neofetch \
