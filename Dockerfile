@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libv4l-dev \
     v4l-utils \
+    libopenblas0 \
+    liblapack3 \
     espeak \
     espeak-data \
     libespeak-dev \
