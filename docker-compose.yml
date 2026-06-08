@@ -2,9 +2,6 @@ version: "3.9"
 
 services:
 
-  # =========================================
-  # MAIN SECURITY APP
-  # =========================================
   security:
     build: .
     container_name: smart_security
@@ -25,11 +22,6 @@ services:
 
     network_mode: host
 
-  # =========================================
-  # WEB APP
-  # Usage: docker compose up web
-  # Access: http://localhost:5000 or http://<rpi-ip>:5000
-  # =========================================
   web:
     build: .
     container_name: smart_security_web
@@ -47,15 +39,10 @@ services:
       - STRANGERS_DIR=/app/strangers
       - LOG_FILE=/app/logs/security.log
 
-    ports:
-      - "5000:5000"
+    network_mode: host    # ← this is the fix
 
     command: python src/webapp.py
 
-  # =========================================
-  # REGISTER FACE (run on demand)
-  # Usage: docker compose run register
-  # =========================================
   register:
     build: .
     container_name: smart_security_register
@@ -74,10 +61,6 @@ services:
 
     command: python src/register_face.py
 
-  # =========================================
-  # ADMIN PANEL (run on demand)
-  # Usage: docker compose run admin
-  # =========================================
   admin:
     build: .
     container_name: smart_security_admin
