@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Security — Register Face</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --green: #00ff88;
+            --green-dim: #00ff8820;
+            --red: #ff3355;
+            --red-dim: #ff335520;
+            --yellow: #ffcc00;
+            --bg: #060a0f;
+            --surface: #0d1520;
+            --surface2: #111e2e;
+            --border: #1a2a3a;
+            --text: #c8d8e8;
+            --text-dim: #5a7a9a;
+            --mono: 'Share Tech Mono', monospace;
+            --sans: 'Exo 2', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.2;
+            pointer-events: none;
+        }
+
+        nav {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .nav-brand .label {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--green);
+            letter-spacing: 0.2em;
+            opacity: 0.7;
+        }
+
+        .nav-brand h1 { font-weight: 800; font-size: 1.2rem; color: #fff; }
+
+        .nav-links { display: flex; gap: 0.5rem; }
+
+        .nav-links a {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border: 1px solid transparent;
+            letter-spacing: 0.1em;
+            transition: all 0.2s;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--green);
+            border-color: var(--green);
+            background: var(--green-dim);
+        }
+
+        .nav-links a.logout { color: var(--red); border-color: var(--border); }
+        .nav-links a.logout:hover { border-color: var(--red); background: var(--red-dim); }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+        }
+
+        .panel-title {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--green);
+            letter-spacing: 0.2em;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .flash {
+            padding: 0.75rem 1rem;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            margin-bottom: 1.25rem;
+            border: 1px solid;
+        }
+
+        .flash.success { color: var(--green); border-color: var(--green); background: var(--green-dim); }
+        .flash.error { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+
+        label {
+            display: block;
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--green);
+            letter-spacing: 0.15em;
+            margin-bottom: 0.5rem;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: #0a1520;
+            border: 1px solid var(--border);
+            color: #fff;
+            font-family: var(--mono);
+            font-size: 0.9rem;
+            padding: 0.75rem 1rem;
+            outline: none;
+            margin-bottom: 1.25rem;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--green);
+            box-shadow: 0 0 0 3px var(--green-dim);
+        }
+
+        .source-tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid var(--border);
+            margin-bottom: 1.25rem;
+        }
+
+        .source-tab {
+            padding: 0.75rem;
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            cursor: pointer;
+            text-align: center;
+            border: none;
+            background: transparent;
+            transition: all 0.2s;
+        }
+
+        .source-tab.active { color: #000; background: var(--green); }
+        .source-tab:not(.active):hover { color: var(--green); background: var(--green-dim); }
+
+        .source-section { display: none; }
+        .source-section.active { display: block; }
+
+        .webcam-wrap {
+            position: relative;
+            background: #000;
+            margin-bottom: 0.75rem;
+            border: 1px solid var(--border);
+        }
+
+        .webcam-wrap video,
+        .webcam-wrap img {
+            width: 100%;
+            display: block;
+            max-height: 200px;
+            object-fit: cover;
+        }
+
+        .cam-error {
+            display: none;
+            padding: 1.5rem;
+            text-align: center;
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--red);
+        }
+
+        .capture-btns {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .capture-btns button {
+            flex: 1;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            padding: 0.6rem;
+            cursor: pointer;
+            letter-spacing: 0.1em;
+            transition: all 0.2s;
+        }
+
+        .capture-btns button.primary {
+            color: var(--green);
+            border-color: var(--green);
+        }
+
+        .capture-btns button:hover { opacity: 0.8; }
+
+        .rpi-capture {
+            text-align: center;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            margin-bottom: 1.25rem;
+        }
+
+        .rpi-capture p {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-top: 0.5rem;
+            line-height: 1.6;
+        }
+
+        .cam-status {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .cam-status.online { color: var(--green); }
+        .cam-status.offline { color: var(--red); }
+
+        .btn {
+            width: 100%;
+            background: var(--green);
+            color: #000;
+            border: none;
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 0.85rem;
+            letter-spacing: 0.1em;
+            padding: 0.85rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover { opacity: 0.85; }
+        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .faces-panel { grid-column: 2; }
+        .face-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+        .face-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.75rem;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+        }
+
+        .face-name {
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            color: var(--text);
+        }
+
+        .face-name::before { content: '▸ '; color: var(--green); font-size: 0.7rem; }
+
+        .delete-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            padding: 0.3rem 0.6rem;
+            cursor: pointer;
+            letter-spacing: 0.05em;
+            transition: all 0.2s;
+        }
+
+        .delete-btn:hover { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+
+        .no-faces {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: center;
+            padding: 2rem;
+            border: 1px dashed var(--border);
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-brand">
+            <span class="label">// SMART SECURITY</span>
+            <h1>Register Face</h1>
+        </div>
+        <div class="nav-links">
+            <a href="/">MONITOR</a>
+            <a href="/register" class="active">REGISTER FACE</a>
+            <a href="/logout" class="logout">LOGOUT</a>
+        </div>
+    </nav>
+
+    <div class="container">
+
+        <!-- REGISTER FORM -->
+        <div class="panel">
+            <div class="panel-title">// ADD AUTHORIZED FACE</div>
+
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for msg in messages %}
+                        <div class="flash {% if 'registered' in msg.lower() %}success{% else %}error{% endif %}">
+                            {{ msg }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form method="POST" enctype="multipart/form-data" id="reg-form">
+                <label>PERSON'S NAME</label>
+                <input type="text" name="name" id="name-input" placeholder="e.g. John Doe" required>
+
+                <label>CAPTURE SOURCE</label>
+                <div class="source-tabs">
+                    <button type="button" class="source-tab active" onclick="setSource('local', this)">
+                        💻 THIS DEVICE
+                    </button>
+                    <button type="button" class="source-tab" onclick="setSource('rpi', this)">
+                        📷 RPi CAMERA
+                    </button>
+                </div>
+
+                <input type="hidden" name="source" id="source-input" value="local">
+                <input type="hidden" name="captured_image" id="captured-image-data">
+
+                <!-- Local webcam section -->
+                <div class="source-section active" id="section-local">
+                    <div class="webcam-wrap">
+                        <video id="local-video" autoplay playsinline></video>
+                        <canvas id="local-canvas" style="display:none;"></canvas>
+                        <img id="captured-preview" style="display:none;" alt="Captured">
+                        <div class="cam-error" id="cam-error">
+                            ⚠ Camera not available or permission denied.
+                        </div>
+                    </div>
+                    <div class="capture-btns">
+                        <button type="button" class="primary" onclick="captureFrame()">📸 CAPTURE</button>
+                        <button type="button" onclick="retakeFrame()">🔄 RETAKE</button>
+                    </div>
+                </div>
+
+                <!-- RPi camera section -->
+                <div class="source-section" id="section-rpi">
+                    <div class="rpi-capture">
+                        <div class="cam-status {{ 'online' if camera_available else 'offline' }}">
+                            {% if camera_available %}● CAMERA ONLINE{% else %}● CAMERA OFFLINE{% endif %}
+                        </div>
+                        <p>
+                            {% if camera_available %}
+                                Click register to instantly capture from the RPi camera.
+                                Make sure the person is in front of the camera.
+                            {% else %}
+                                RPi camera is not available on this device.
+                                Use your device camera instead.
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                <button type="button" class="btn" id="submit-btn" onclick="submitForm()">Register Face →</button>
+            </form>
+        </div>
+
+        <!-- REGISTERED FACES -->
+        <div class="panel faces-panel">
+            <div class="panel-title">// AUTHORIZED FACES ({{ faces|length }})</div>
+            {% if faces %}
+                <div class="face-list">
+                    {% for face in faces %}
+                        <div class="face-item">
+                            <span class="face-name">{{ face }}</span>
+                            <form method="POST" action="/delete_face/{{ face }}" style="margin:0">
+                                <button type="submit" class="delete-btn"
+                                    onclick="return confirm('Delete {{ face }}?')">
+                                    DELETE
+                                </button>
+                            </form>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="no-faces">No faces registered yet.</div>
+            {% endif %}
+        </div>
+
+    </div>
+
+    <script>
+        let stream = null;
+        let captured = false;
+
+        // Start webcam on page load
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const video = document.getElementById('local-video');
+                video.srcObject = stream;
+            } catch (e) {
+                document.getElementById('local-video').style.display = 'none';
+                document.getElementById('cam-error').style.display = 'block';
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+                stream = null;
+            }
+        }
+
+        function captureFrame() {
+            const video = document.getElementById('local-video');
+            const canvas = document.getElementById('local-canvas');
+            const preview = document.getElementById('captured-preview');
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            document.getElementById('captured-image-data').value = dataUrl;
+
+            preview.src = dataUrl;
+            preview.style.display = 'block';
+            video.style.display = 'none';
+            captured = true;
+        }
+
+        function retakeFrame() {
+            const video = document.getElementById('local-video');
+            const preview = document.getElementById('captured-preview');
+            document.getElementById('captured-image-data').value = '';
+            preview.style.display = 'none';
+            video.style.display = 'block';
+            captured = false;
+        }
+
+        function setSource(src, btn) {
+            document.getElementById('source-input').value = src;
+            document.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.source-section').forEach(s => s.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('section-' + src).classList.add('active');
+
+            if (src === 'local') {
+                startCamera();
+            } else {
+                stopCamera();
+            }
+        }
+
+        function submitForm() {
+            const source = document.getElementById('source-input').value;
+            const name = document.getElementById('name-input').value.trim();
+
+            if (!name) {
+                alert('Please enter a name.');
+                return;
+            }
+
+            if (source === 'local' && !captured) {
+                alert('Please capture a photo first.');
+                return;
+            }
+
+            document.getElementById('reg-form').submit();
+        }
+
+        // Start camera on load
+        startCamera();
+    </script>
+</body>
+</html>

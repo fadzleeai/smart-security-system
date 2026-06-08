@@ -18,7 +18,7 @@ RESET  = "\033[0m"
 # CLEAR SCREEN (cross-platform)
 # =========================================
 
-def clear():
+def clear():    
     os.system("cls" if os.name == "nt" else "clear")
 
 # =========================================

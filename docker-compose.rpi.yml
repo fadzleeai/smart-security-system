@@ -1,6 +1,6 @@
 # =========================================
 # RPi-specific overrides (camera + GPIO)
-# Usage: docker compose -f docker-compose.yml -f docker-compose.rpi.yml up security
+# Usage: docker compose -f docker-compose.yml -f docker-compose.rpi.yml up security web
 # =========================================
 
 services:
@@ -11,6 +11,10 @@ services:
       - /dev/gpiomem:/dev/gpiomem
     group_add:
       - audio
+
+  web:
+    devices:
+      - /dev/video0:/dev/video0
 
   register:
     devices:

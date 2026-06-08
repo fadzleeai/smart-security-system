@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Security — Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --green: #00ff88;
+            --green-dim: #00ff8820;
+            --red: #ff3355;
+            --red-dim: #ff335520;
+            --yellow: #ffcc00;
+            --bg: #060a0f;
+            --surface: #0d1520;
+            --surface2: #111e2e;
+            --border: #1a2a3a;
+            --text: #c8d8e8;
+            --text-dim: #5a7a9a;
+            --mono: 'Share Tech Mono', monospace;
+            --sans: 'Exo 2', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.2;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* NAV */
+        nav {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .nav-brand {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nav-brand .label {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--green);
+            letter-spacing: 0.2em;
+            opacity: 0.7;
+        }
+
+        .nav-brand h1 {
+            font-weight: 800;
+            font-size: 1.2rem;
+            color: #fff;
+            letter-spacing: -0.02em;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border: 1px solid transparent;
+            letter-spacing: 0.1em;
+            transition: all 0.2s;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--green);
+            border-color: var(--green);
+            background: var(--green-dim);
+        }
+
+        .nav-links a.logout {
+            color: var(--red);
+            border-color: var(--border);
+        }
+
+        .nav-links a.logout:hover {
+            border-color: var(--red);
+            background: var(--red-dim);
+        }
+
+        /* LAYOUT */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            grid-template-rows: auto auto;
+            gap: 1.5rem;
+        }
+
+        /* PANEL */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.25rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-title {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--green);
+            letter-spacing: 0.2em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.offline {
+            background: var(--red);
+            box-shadow: 0 0 8px var(--red);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* CAMERA FEED */
+        .camera-panel {
+            grid-column: 1;
+            grid-row: 1;
+        }
+
+        .feed-wrapper {
+            position: relative;
+            background: #000;
+            aspect-ratio: 16/9;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .feed-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .feed-offline {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 1rem;
+            color: var(--text-dim);
+        }
+
+        .feed-offline .icon {
+            font-size: 3rem;
+            opacity: 0.3;
+        }
+
+        .feed-offline p {
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            letter-spacing: 0.1em;
+        }
+
+        /* STRANGERS */
+        .strangers-panel {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .strangers-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+        }
+
+        .stranger-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .stranger-card:hover {
+            border-color: var(--red);
+        }
+
+        .stranger-card img {
+            width: 100%;
+            aspect-ratio: 4/3;
+            object-fit: cover;
+            display: block;
+        }
+
+        .stranger-info {
+            padding: 0.5rem 0.75rem;
+        }
+
+        .stranger-risk {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.2rem;
+        }
+
+        .stranger-risk.HIGH { color: var(--red); }
+        .stranger-risk.Medium { color: var(--yellow); }
+        .stranger-risk.Low { color: var(--green); }
+
+        .stranger-time {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            color: var(--text-dim);
+        }
+
+        .no-strangers {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: center;
+            padding: 2rem;
+            border: 1px dashed var(--border);
+        }
+
+        /* LOGS */
+        .logs-panel {
+            grid-column: 2;
+            grid-row: 1 / 3;
+        }
+
+        .logs-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .logs-list::-webkit-scrollbar { width: 4px; }
+        .logs-list::-webkit-scrollbar-track { background: transparent; }
+        .logs-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+        .log-entry {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            padding: 0.4rem 0.6rem;
+            background: var(--surface2);
+            border-left: 2px solid var(--border);
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        .log-entry.authorized { border-left-color: var(--green); }
+        .log-entry.denied { border-left-color: var(--red); }
+        .log-entry.warning { border-left-color: var(--yellow); }
+
+        .no-logs {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .reg-btn {
+            display: inline-block;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: #000;
+            background: var(--green);
+            padding: 0.5rem 1.25rem;
+            text-decoration: none;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+            transition: opacity 0.2s;
+            clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+        }
+
+        .reg-btn:hover { opacity: 0.85; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-brand">
+            <span class="label">// SMART SECURITY</span>
+            <h1>Dashboard</h1>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="active">MONITOR</a>
+            <a href="/register">REGISTER FACE</a>
+            <a href="/logout" class="logout">LOGOUT</a>
+        </div>
+    </nav>
+
+    <div class="container">
+
+        <!-- LIVE FEED -->
+        <div class="panel camera-panel">
+            <div class="panel-header">
+                <span class="panel-title">// LIVE CAMERA FEED</span>
+                <div class="status-dot {% if not camera_available %}offline{% endif %}" id="status-dot"></div>
+            </div>
+            <div class="feed-wrapper">
+                {% if camera_available %}
+                    <img src="/video_feed" alt="Live Feed" id="feed">
+                {% else %}
+                    <div class="feed-offline" id="feed-offline">
+                        <div class="icon">📷</div>
+                        <p>CAMERA OFFLINE</p>
+                        <p style="font-size:0.65rem; opacity:0.5;">No camera detected on this device</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- LOGS -->
+        <div class="panel logs-panel">
+            <div class="panel-header">
+                <span class="panel-title">// ACTIVITY LOG</span>
+                <a href="/register" class="reg-btn">+ REGISTER</a>
+            </div>
+            {% if logs %}
+                <div class="logs-list">
+                    {% for log in logs %}
+                        <div class="log-entry
+                            {% if 'AUTHORIZED' in log %}authorized
+                            {% elif 'DENIED' in log or 'Unknown' in log %}denied
+                            {% elif 'WARNING' in log or 'HIGH' in log %}warning
+                            {% endif %}">
+                            {{ log }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="no-logs">No activity logged yet.</div>
+            {% endif %}
+        </div>
+
+        <!-- STRANGERS -->
+        <div class="panel strangers-panel">
+            <div class="panel-header">
+                <span class="panel-title">// STRANGER CAPTURES</span>
+                <span style="font-family:var(--mono);font-size:0.65rem;color:var(--text-dim);">LAST 6</span>
+            </div>
+            {% if strangers %}
+                <div class="strangers-grid">
+                    {% for s in strangers %}
+                        <div class="stranger-card">
+                            <img src="/stranger/{{ s.filename }}" alt="Stranger">
+                            <div class="stranger-info">
+                                <div class="stranger-risk {{ s.risk }}">{{ s.risk }}</div>
+                                <div class="stranger-time">{{ s.time }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="no-strangers">No strangers detected yet.</div>
+            {% endif %}
+        </div>
+
+    </div>
+
+    <script>
+        // Auto-refresh logs every 10s
+        setTimeout(() => location.reload(), 10000);
+    </script>
+</body>
+</html>

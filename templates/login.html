@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Security — Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --green: #00ff88;
+            --green-dim: #00ff8833;
+            --red: #ff3355;
+            --bg: #060a0f;
+            --surface: #0d1520;
+            --border: #1a2a3a;
+            --text: #c8d8e8;
+            --mono: 'Share Tech Mono', monospace;
+            --sans: 'Exo 2', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        /* Glow orb */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, #00ff8811 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .login-box {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            width: 420px;
+            clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
+        }
+
+        .login-box::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #00ff8808 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .logo {
+            font-family: var(--mono);
+            color: var(--green);
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            margin-bottom: 0.5rem;
+            opacity: 0.7;
+        }
+
+        h1 {
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 1.8rem;
+            color: #fff;
+            margin-bottom: 0.3rem;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--green);
+            margin-bottom: 2.5rem;
+            opacity: 0.8;
+        }
+
+        .flash {
+            background: #ff335520;
+            border: 1px solid var(--red);
+            color: var(--red);
+            padding: 0.75rem 1rem;
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--green);
+            letter-spacing: 0.15em;
+            margin-bottom: 0.5rem;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            background: #0a1520;
+            border: 1px solid var(--border);
+            color: #fff;
+            font-family: var(--mono);
+            font-size: 1rem;
+            padding: 0.85rem 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+            margin-bottom: 1.5rem;
+        }
+
+        input[type="password"]:focus {
+            border-color: var(--green);
+            box-shadow: 0 0 0 3px var(--green-dim);
+        }
+
+        button {
+            width: 100%;
+            background: var(--green);
+            color: #000;
+            border: none;
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 0.9rem;
+            letter-spacing: 0.1em;
+            padding: 0.9rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+            transition: opacity 0.2s;
+        }
+
+        button:hover { opacity: 0.85; }
+
+        .corner {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-color: var(--green);
+            border-style: solid;
+            opacity: 0.6;
+        }
+        .corner.tl { top: 8px; left: 8px; border-width: 1px 0 0 1px; }
+        .corner.tr { top: 8px; right: 8px; border-width: 1px 1px 0 0; }
+        .corner.bl { bottom: 8px; left: 8px; border-width: 0 0 1px 1px; }
+        .corner.br { bottom: 8px; right: 8px; border-width: 0 1px 1px 0; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="corner tl"></div>
+        <div class="corner tr"></div>
+        <div class="corner bl"></div>
+        <div class="corner br"></div>
+
+        <div class="logo">// SMART SECURITY SYSTEM</div>
+        <h1>Access Portal</h1>
+        <div class="subtitle">AUTHENTICATION REQUIRED</div>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for msg in messages %}
+                    <div class="flash">⚠ {{ msg }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST">
+            <label>ENTER PASSWORD</label>
+            <input type="password" name="password" autofocus placeholder="••••••••">
+            <button type="submit">Authenticate →</button>
+        </form>
+    </div>
+</body>
+</html>

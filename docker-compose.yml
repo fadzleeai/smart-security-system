@@ -26,6 +26,33 @@ services:
     network_mode: host
 
   # =========================================
+  # WEB APP
+  # Usage: docker compose up web
+  # Access: http://localhost:5000 or http://<rpi-ip>:5000
+  # =========================================
+  web:
+    build: .
+    container_name: smart_security_web
+    restart: unless-stopped
+
+    volumes:
+      - ./known_faces:/app/known_faces
+      - ./strangers:/app/strangers
+      - ./logs:/app/logs
+      - ./config.json:/app/config.json
+
+    environment:
+      - CONFIG_PATH=/app/config.json
+      - KNOWN_FACES_DIR=/app/known_faces
+      - STRANGERS_DIR=/app/strangers
+      - LOG_FILE=/app/logs/security.log
+
+    ports:
+      - "5000:5000"
+
+    command: python src/webapp.py
+
+  # =========================================
   # REGISTER FACE (run on demand)
   # Usage: docker compose run register
   # =========================================
