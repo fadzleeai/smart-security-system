@@ -39,9 +39,9 @@ services:
       - STRANGERS_DIR=/app/strangers
       - LOG_FILE=/app/logs/security.log
 
-    network_mode: host    # ← this is the fix
+    network_mode: host
 
-    command: python src/webapp.py
+    command: python3 src/webapp.py
 
   register:
     build: .
@@ -59,7 +59,7 @@ services:
       - KNOWN_FACES_DIR=/app/known_faces
       - DISPLAY=${DISPLAY:-}
 
-    command: python src/register_face.py
+    command: python3 src/register_face.py
 
   admin:
     build: .
@@ -79,4 +79,4 @@ services:
       - STRANGERS_DIR=/app/strangers
       - DISPLAY=${DISPLAY:-}
 
-    command: python admin.py
+    command: python3 admin.py

@@ -1,33 +1,31 @@
-# =========================================
-# Base: Python 3.13-slim to match RPi trixie
-# =========================================
-FROM python:3.13-slim
+FROM arm64v8/debian:bookworm
 
 # =========================================
-# System dependencies
+# Add RPi apt repo for picamera2
 # =========================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends gnupg curl \
+    && echo "deb http://archive.raspberrypi.org/debian/ bookworm main" > /etc/apt/sources.list.d/raspi.list \
+    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 82B129927FA3303E \
+    && apt-get update
+
+# =========================================
+# System dependencies + picamera2
+# =========================================
+RUN apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-picamera2 \
+    python3-numpy \
+    python3-opencv \
     build-essential \
     cmake \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgl1 \
-    libv4l-dev \
-    v4l-utils \
-    libopenblas0 \
-    liblapack3 \
     espeak \
     espeak-data \
     libespeak-dev \
     alsa-utils \
-    curl \
-    python3-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://raw.githubusercontent.com/dylanaraps/neofetch/master/neofetch \
-       -o /usr/local/bin/neofetch \
-    && chmod +x /usr/local/bin/neofetch
+    neofetch \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # =========================================
 # Working directory
@@ -35,10 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # =========================================
-# Install Python dependencies
+# Python dependencies
 # =========================================
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --break-system-packages --no-cache-dir -r requirements.txt
 
 # =========================================
 # Copy source code
