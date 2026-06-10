@@ -5,7 +5,7 @@ PIR_PIN = 17
 
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(PIR_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+GPIO.setup(PIR_PIN, GPIO.IN)
 
 print("Initializing PIR sensor...")
 time.sleep(5)
