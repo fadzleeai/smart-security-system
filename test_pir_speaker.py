@@ -1,17 +1,18 @@
 from gpiozero import MotionSensor
-import pyttsx3
+import subprocess
 
 PIR_PIN = 4
 
 pir = MotionSensor(PIR_PIN)
 
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)
-
 def speak(text):
     try:
-        engine.say(text)
-        engine.runAndWait()
+        espeak = subprocess.Popen(
+            ["espeak-ng", "-a", "200", text, "--stdout"],
+            stdout=subprocess.PIPE
+        )
+        subprocess.run(["aplay"], stdin=espeak.stdout, check=True)
+        espeak.wait()
     except Exception as e:
         print(f"[SPEAKER] {text} (error: {e})")
 
