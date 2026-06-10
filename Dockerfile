@@ -5,8 +5,12 @@ FROM arm64v8/debian:bookworm
 # =========================================
 RUN apt-get update && apt-get install -y --no-install-recommends gnupg curl \
     && echo "deb http://archive.raspberrypi.org/debian/ bookworm main" > /etc/apt/sources.list.d/raspi.list \
-    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 82B129927FA3303E \
-    && apt-get update
+    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 82B129927FA3303E
+
+# =========================================
+# Upgrade base system to match RPi repo
+# =========================================
+RUN apt-get update && apt-get -y upgrade
 
 # =========================================
 # System dependencies + picamera2
@@ -25,6 +29,8 @@ RUN apt-get install -y --no-install-recommends \
     alsa-utils \
     neofetch \
     && apt-get clean \
+    && apt-get autoremove \
+    && rm -rf /var/cache/apt/archives/* \
     && rm -rf /var/lib/apt/lists/*
 
 # =========================================
