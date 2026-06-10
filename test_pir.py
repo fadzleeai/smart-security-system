@@ -1,40 +1,31 @@
+import RPi.GPIO as GPIO
 import time
 
-try:
-    import RPi.GPIO as GPIO
-except ImportError:
-    print("RPi.GPIO not found. Are you on a Raspberry Pi?")
-    exit(1)
+PIR_PIN = 17
 
-# =========================================
-# CONFIG
-# =========================================
-
-PIR_PIN = 11
-
-# =========================================
-# SETUP
-# =========================================
-
+GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(PIR_PIN, GPIO.IN)
+# ADDED: pull_up_down=GPIO.PUD_DOWN prevents the pin from floating
+GPIO.setup(PIR_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-print(f"PIR sensor test — GPIO pin {PIR_PIN}")
-print("Waiting for sensor to settle (2s)...")
-time.sleep(2)
-print("Ready. Move in front of the sensor.\n")
+print("Initializing PIR sensor... (Please wait 30 seconds)")
+time.sleep(30) # INCREASED: Gives the sensor time to calibrate to the room
+print("PIR Ready.")
+print("Move in front of the sensor.")
 print("Press Ctrl+C to stop.\n")
-
-# =========================================
-# LOOP
-# =========================================
 
 try:
     while True:
-        if GPIO.input(PIR_PIN) == GPIO.HIGH:
-            print(f"[{time.strftime('%H:%M:%S')}] MOTION DETECTED!")
+        if GPIO.input(PIR_PIN):
+            # Pad with spaces to overwrite any leftover \r text
+            print(f"[{time.strftime('%H:%M:%S')}] MOTION DETECTED!          ")
+            
+            while GPIO.input(PIR_PIN):
+                time.sleep(0.2)
         else:
-            print(f"[{time.strftime('%H:%M:%S')}] No motion...", end="\r")
+            # Pad with spaces to ensure clean overwriting
+            print(f"[{time.strftime('%H:%M:%S')}] No motion...              ", end="\r")
+        
         time.sleep(0.2)
 
 except KeyboardInterrupt:
