@@ -1,31 +1,16 @@
 import RPi.GPIO as GPIO
 import time
-
-PIR_PIN = 11
-
-GPIO.setwarnings(False)
+ 
 GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+PIR_PIN = 23
 GPIO.setup(PIR_PIN, GPIO.IN)
 
-print("Initializing PIR sensor...")
-time.sleep(5)
-print("PIR Ready.")
-print("Move in front of the sensor.")
-print("Press Ctrl+C to stop.\n")
+print('Starting up the PIR Module ')
+time.sleep(1)
+print ('Ready')
 
-try:
-    while True:
-        if GPIO.input(PIR_PIN):
-            print(f"[{time.strftime('%H:%M:%S')}] MOTION DETECTED!")
-            while GPIO.input(PIR_PIN):
-                time.sleep(0.2)
-        else:
-            print(f"[{time.strftime('%H:%M:%S')}] No motion...", end="\r")
-        time.sleep(0.2)
-
-except KeyboardInterrupt:
-    print("\nTest stopped.")
-
-finally:
-    GPIO.cleanup()
-    print("GPIO cleaned up.")
+while True:
+  if GPIO.input(PIR_PIN):
+    print('Motion Detected')
+  time.sleep(1)
