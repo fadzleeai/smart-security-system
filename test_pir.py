@@ -2,7 +2,7 @@ from gpiozero import MotionSensor
 import subprocess
 import time
 
-PIR_PIN = 17
+PIR_PIN = 4
 
 pir = MotionSensor(PIR_PIN)
 
