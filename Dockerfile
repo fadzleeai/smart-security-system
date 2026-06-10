@@ -24,9 +24,9 @@ RUN apt-get install -y --no-install-recommends \
     python3-opencv \
     build-essential \
     cmake \
-    espeak \
-    espeak-data \
-    libespeak-dev \
+    espeak-ng \
+    espeak-ng-data \
+    libespeak-ng-dev \
     alsa-utils \
     neofetch \
     && apt-get clean \
@@ -38,6 +38,12 @@ RUN apt-get install -y --no-install-recommends \
 # Working directory
 # =========================================
 WORKDIR /app
+
+# =========================================
+# Limit dlib compilation to 1 core to prevent OOM
+# =========================================
+ENV DLIB_NUM_THREADS=1
+ENV MAKEFLAGS="-j1"
 
 # =========================================
 # Python dependencies
