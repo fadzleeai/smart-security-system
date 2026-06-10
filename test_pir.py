@@ -32,4 +32,3 @@ try:
 
 except KeyboardInterrupt:
     print("\nTest stopped.")
-EOF
