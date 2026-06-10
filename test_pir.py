@@ -43,4 +43,3 @@ except KeyboardInterrupt:
 finally:
     GPIO.cleanup()
     print("GPIO cleaned up.")
-EOF
