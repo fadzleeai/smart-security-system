@@ -106,6 +106,15 @@ def change_gpio_pin(config: dict):
     except ValueError:
         print("Invalid input.")
 
+def change_door_sensor_pin(config: dict):
+    print(f"\nCurrent door sensor GPIO pin: {config.get('door_sensor_pin', 'Not set')} (BCM numbering)")
+    try:
+        val = int(input("New door sensor GPIO pin: ").strip())
+        config["door_sensor_pin"] = val
+        save_config(config)
+    except ValueError:
+        print("Invalid input.")
+
 def change_tts_speed(config: dict):
     print(f"\nCurrent TTS speed: {config['tts_speed']} words/min (default 150)")
     try:
@@ -210,22 +219,23 @@ def main():
             if f.lower().endswith((".jpg", ".png"))
         ] if os.path.exists(KNOWN_FACES_DIR) else [])
 
-        print(f"  Tolerance: {config['tolerance']}  |  GPIO: {config['gpio_pin']}  |  Faces: {face_count}")
+        print(f"  Tolerance: {config['tolerance']}  |  PIR GPIO: {config['gpio_pin']}  |  Door GPIO: {config.get('door_sensor_pin', 'N/A')}  |  Faces: {face_count}")
         print()
         print("  1. System info (neofetch)")
         print("  ─────────────────────")
         print("  2. View all settings")
         print("  3. Change tolerance")
-        print("  4. Change GPIO pin")
-        print("  5. Change TTS speed")
-        print("  6. Change sleep timeout")
+        print("  4. Change GPIO pin (PIR sensor)")
+        print("  5. Change door sensor GPIO pin")
+        print("  6. Change TTS speed")
+        print("  7. Change sleep timeout")
         print("  ─────────────────────")
-        print("  7. List registered faces")
-        print("  8. Register new face")
-        print("  9. Delete a face")
+        print("  8. List registered faces")
+        print("  9. Register new face")
+        print(" 10. Delete a face")
         print("  ─────────────────────")
-        print(" 10. View logs")
-        print(" 11. Clear logs")
+        print(" 11. View logs")
+        print(" 12. Clear logs")
         print("  ─────────────────────")
         print("  0. Exit")
         print()
@@ -244,23 +254,26 @@ def main():
             change_gpio_pin(config)
             pause()
         elif choice == "5":
-            change_tts_speed(config)
+            change_door_sensor_pin(config)
             pause()
         elif choice == "6":
-            change_sleep_timeout(config)
+            change_tts_speed(config)
             pause()
         elif choice == "7":
-            list_faces()
+            change_sleep_timeout(config)
             pause()
         elif choice == "8":
-            register_face()
+            list_faces()
+            pause()
         elif choice == "9":
+            register_face()
+        elif choice == "10":
             delete_face()
             pause()
-        elif choice == "10":
+        elif choice == "11":
             view_logs(config)
             pause()
-        elif choice == "11":
+        elif choice == "12":
             clear_logs(config)
             pause()
         elif choice == "0":

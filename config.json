@@ -1,6 +1,7 @@
 {
     "tolerance": 0.5,
     "gpio_pin": 17,
+    "door_sensor_pin": 6,
     "camera_index": 0,
     "frame_skip": 2,
     "camera_warmup_seconds": 2,

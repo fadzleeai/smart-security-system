@@ -4,69 +4,50 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Try importing pyttsx3 — falls back to espeak subprocess, then mock
-try:
-    import pyttsx3
-    PYTTSX3_AVAILABLE = True
-except ImportError:
-    PYTTSX3_AVAILABLE = False
-    logger.warning("pyttsx3 not available. Trying espeak fallback.")
-
 
 class Speaker:
 
     def __init__(self, language: str = "en", speed: int = 150):
         self.language = language
         self.speed = speed
-        self.engine = None
         self.mode = None
 
-        if PYTTSX3_AVAILABLE:
-            try:
-                self.engine = pyttsx3.init()
-                self.engine.setProperty("rate", self.speed)
-                self.mode = "pyttsx3"
-                logger.info("Speaker initialized with pyttsx3.")
-            except Exception as e:
-                logger.warning(f"pyttsx3 init failed: {e}. Trying espeak.")
+        # Check for espeak-ng with aplay pipeline (matches test_pir_speaker.py)
+        espeak_cmd = "where" if os.name == "nt" else "which"
+        espeak_found = subprocess.run([espeak_cmd, "espeak-ng"], capture_output=True).returncode == 0
+        aplay_found = subprocess.run([espeak_cmd, "aplay"], capture_output=True).returncode == 0
 
-        if self.mode is None:
-            # Try espeak as fallback (available on RPi via apt)
-            cmd = "where" if os.name == "nt" else "which"
-            result = subprocess.run([cmd, "espeak"], capture_output=True)
-            if result.returncode == 0:
-                self.mode = "espeak"
-                logger.info("Speaker initialized with espeak.")
-            else:
-                self.mode = "mock"
-                logger.warning("No TTS engine found. Speaker running in MOCK mode (print only).")
+        if espeak_found and aplay_found:
+            self.mode = "espeak-ng"
+            logger.info("Speaker initialized with espeak-ng + aplay pipeline.")
+        else:
+            self.mode = "mock"
+            logger.warning("espeak-ng or aplay not found. Speaker running in MOCK mode (print only).")
 
     def say(self, text: str):
         logger.info(f"TTS: {text}")
 
-        if self.mode == "pyttsx3":
+        if self.mode == "espeak-ng":
             try:
-                self.engine.say(text)
-                self.engine.runAndWait()
-            except Exception as e:
-                logger.error(f"pyttsx3 say failed: {e}")
-
-        elif self.mode == "espeak":
-            try:
+                # Same pipeline as test_pir_speaker.py
+                espeak = subprocess.Popen(
+                    ["espeak-ng", "-a", "200", "-v", self.language, "-s", str(self.speed), text, "--stdout"],
+                    stdout=subprocess.PIPE
+                )
                 subprocess.run(
-                    ["espeak", "-v", self.language, "-s", str(self.speed), text],
+                    ["aplay"],
+                    stdin=espeak.stdout,
+                    stderr=subprocess.DEVNULL,
                     check=True
                 )
-            except subprocess.CalledProcessError as e:
-                logger.error(f"espeak failed: {e}")
+                espeak.wait()
+            except Exception as e:
+                logger.error(f"espeak-ng say failed: {e}")
 
         else:
             # Mock mode — just print
             print(f"[SPEAKER] {text}")
 
     def cleanup(self):
-        if self.engine:
-            try:
-                self.engine.stop()
-            except Exception:
-                pass
+        # No persistent engine to clean up
+        pass

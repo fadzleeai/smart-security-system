@@ -90,9 +90,11 @@ def main():
     from src.motion_sensor import MotionSensor
     from src.speaker import Speaker
     from src.face_recognition_engine import FaceRecognitionEngine
+    from src.door_sensor import DoorSensor
 
     motion_sensor = MotionSensor(pin=config["gpio_pin"])
     speaker = Speaker(language=config["tts_language"], speed=config["tts_speed"])
+    door_sensor = DoorSensor(pin=config["door_sensor_pin"])
     engine = FaceRecognitionEngine(
         known_faces_dir=KNOWN_FACES_DIR,
         tolerance=config["tolerance"],
@@ -161,6 +163,20 @@ def main():
                     last_detection_time = time.time()
 
                     # =====================================
+                    # DOOR SENSOR LOGIC
+                    # =====================================
+
+                    authorized = result["action"] == "AUTHORIZED"
+                    door_sensor.handle_door_event(
+                        authorized=authorized,
+                        name=result["name"],
+                        speaker=speaker,
+                        save_stranger_fn=save_stranger if not authorized else None,
+                        frame=frame,
+                        risk=result["risk"]
+                    )
+
+                    # =====================================
                     # SAVE STRANGER IMAGE
                     # =====================================
 
@@ -199,6 +215,7 @@ def main():
         cv2.destroyAllWindows()
         motion_sensor.cleanup()
         speaker.cleanup()
+        door_sensor.cleanup()
         logger.info("=== Smart Security System Stopped ===")
 
 
