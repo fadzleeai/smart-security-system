@@ -2,7 +2,7 @@
 
 AI-powered face recognition security system for Raspberry Pi 4.
 
-**Hardware:** RPi 4 + USB/CSI camera + PIR motion sensor + speaker
+**Hardware:** RPi 4 + USB/CSI camera + PIR motion sensor + MC38 door sensor + speaker
 
 ---
 
@@ -12,9 +12,12 @@ AI-powered face recognition security system for Raspberry Pi 4.
 2. Camera activates and scans for faces
 3. Known face → TTS: *"Welcome, {name}"*
 4. Unknown face → TTS: *"Access denied"* → escalates to *"Security alert"* after repeated detections
-5. Stranger images saved locally with timestamp and risk level
-6. Camera sleeps after no activity
-7. Web dashboard available for live monitoring and face registration
+5. Door sensor monitors entry:
+   - Door opened by authorized person → entry logged
+   - Door opened by unauthorized person → alarm triggered, stranger image saved
+6. Stranger images saved locally with timestamp and risk level
+7. Camera sleeps after no activity
+8. Web dashboard available for live monitoring and face registration
 
 ---
 
@@ -51,15 +54,17 @@ Smart_Security/
 
 ## Hardware Wiring
 
-| Component  | RPi Pin       |
-|------------|---------------|
-| PIR Signal | GPIO 17 (BCM) |
-| PIR VCC    | 5V            |
-| PIR GND    | GND           |
-| Camera     | USB or CSI    |
-| Speaker    | 3.5mm audio   |
+| Component       | RPi Pin        |
+|-----------------|----------------|
+| PIR Signal      | GPIO 17 (BCM)  |
+| PIR VCC         | 5V             |
+| PIR GND         | GND            |
+| Door Sensor     | GPIO 6 (BCM)   |
+| Door Sensor GND | GND            |
+| Camera          | USB or CSI     |
+| Speaker         | 3.5mm audio    |
 
-> GPIO pin can be changed via admin panel or `config.json`.
+> GPIO pins can be changed via admin panel or `config.json`.
 
 ---
 
@@ -131,16 +136,17 @@ bash stop.sh
  ─────────────────────────
  2. View all settings
  3. Change tolerance
- 4. Change GPIO pin
- 5. Change TTS speed
- 6. Change sleep timeout
+ 4. Change GPIO pin (PIR sensor)
+ 5. Change door sensor GPIO pin
+ 6. Change TTS speed
+ 7. Change sleep timeout
  ─────────────────────────
- 7. List registered faces
- 8. Register new face
- 9. Delete a face
+ 8. List registered faces
+ 9. Register new face
+10. Delete a face
  ─────────────────────────
-10. View logs
-11. Clear logs
+11. View logs
+12. Clear logs
  ─────────────────────────
  0. Exit
 ```
@@ -175,6 +181,7 @@ docker compose run admin
 |---------------------------------|-----------|----------------------------------------|
 | `tolerance`                     | 0.5       | Face match threshold (0.0–1.0)         |
 | `gpio_pin`                      | 17        | PIR sensor GPIO pin (BCM)              |
+| `door_sensor_pin`               | 6         | MC38 door sensor GPIO pin (BCM)        |
 | `camera_index`                  | 0         | Camera device index                    |
 | `frame_skip`                    | 2         | Process every Nth frame (performance)  |
 | `camera_warmup_seconds`         | 2         | Seconds to wait after motion detected  |
