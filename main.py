@@ -209,6 +209,7 @@ def main():
                         speaker.say(voice)
                         spoken_this_frame.add(voice)
 
+                    # Reset timer on every face detection
                     last_detection_time = time.time()
 
                     # =====================================
