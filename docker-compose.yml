@@ -3,7 +3,7 @@ version: "3.9"
 services:
 
   security:
-    build: .
+    image: smart_security
     container_name: smart_security
     restart: unless-stopped
     privileged: true
@@ -23,7 +23,7 @@ services:
     network_mode: host
 
   web:
-    build: .
+    image: smart_security
     container_name: smart_security_web
     restart: unless-stopped
 
@@ -44,7 +44,7 @@ services:
     command: python3 src/webapp.py
 
   register:
-    build: .
+    image: smart_security
     container_name: smart_security_register
     privileged: true
     stdin_open: true
@@ -62,7 +62,7 @@ services:
     command: python3 src/register_face.py
 
   admin:
-    build: .
+    image: smart_security
     container_name: smart_security_admin
     stdin_open: true
     tty: true

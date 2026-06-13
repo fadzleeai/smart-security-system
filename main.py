@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import sys
+import threading
+from flask import Flask, Response
 
 # =========================================
 # LOGGING SETUP
@@ -71,6 +73,36 @@ def draw_results(frame, results, scale: int = 4):
     return frame
 
 # =========================================
+# SHARED FRAME STATE (for stream server)
+# =========================================
+
+latest_frame_bytes = None
+frame_lock = threading.Lock()
+
+# =========================================
+# STREAM SERVER
+# =========================================
+
+stream_app = Flask(__name__)
+
+@stream_app.route("/stream")
+def stream():
+    def generate():
+        while True:
+            with frame_lock:
+                frame = latest_frame_bytes
+            if frame is not None:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.033)
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+def start_stream_server(port: int = 8080):
+    import logging as _logging
+    _logging.getLogger("werkzeug").setLevel(_logging.ERROR)  # silence Flask logs
+    stream_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+# =========================================
 # MAIN
 # =========================================
 
@@ -106,8 +138,20 @@ def main():
     os.makedirs(STRANGERS_DIR, exist_ok=True)
 
     video_capture = cv2.VideoCapture(config["camera_index"])
+    if not video_capture.isOpened():
+        logger.error("No camera found. Exiting.")
+        sys.exit(1)
+
     frame_skip = config["frame_skip"]
     frame_count = 0
+
+    # Detect if a display is available (headless guard)
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+    # Start stream server in background thread
+    stream_port = config.get("stream_port", 8080)
+    threading.Thread(target=start_stream_server, args=(stream_port,), daemon=True).start()
+    logger.info(f"Stream server started on port {stream_port}")
 
     logger.info("System ready. Waiting for motion...")
 
@@ -192,11 +236,19 @@ def main():
                 # =====================================
 
                 annotated = draw_results(frame, results)
-                cv2.imshow("Smart Security", annotated)
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    logger.info("Quit key pressed.")
-                    raise KeyboardInterrupt
+                # Push annotated frame to stream server
+                ret_enc, buffer = cv2.imencode('.jpg', annotated)
+                if ret_enc:
+                    with frame_lock:
+                        latest_frame_bytes = buffer.tobytes()
+
+                # Only show window if a display is available
+                if has_display:
+                    cv2.imshow("Smart Security", annotated)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        logger.info("Quit key pressed.")
+                        raise KeyboardInterrupt
 
                 # =====================================
                 # SLEEP IF NO DETECTION FOR A WHILE
@@ -204,7 +256,11 @@ def main():
 
                 if time.time() - last_detection_time > config["sleep_after_detection_seconds"]:
                     logger.info("No activity. Going back to sleep.")
-                    cv2.destroyAllWindows()
+                    if has_display:
+                        try:
+                            cv2.destroyAllWindows()
+                        except cv2.error:
+                            pass
                     break
 
     except KeyboardInterrupt:
@@ -212,7 +268,11 @@ def main():
 
     finally:
         video_capture.release()
-        cv2.destroyAllWindows()
+        if has_display:
+            try:
+                cv2.destroyAllWindows()
+            except cv2.error:
+                pass
         motion_sensor.cleanup()
         speaker.cleanup()
         door_sensor.cleanup()

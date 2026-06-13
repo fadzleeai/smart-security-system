@@ -3,16 +3,15 @@ import os
 import json
 import time
 import base64
-import threading
 import logging
+import urllib.request
+import numpy as np
 from datetime import datetime
 from functools import wraps
 from flask import (
     Flask, render_template, Response, request,
     redirect, url_for, session, jsonify, flash
 )
-import face_recognition
-import numpy as np
 
 # =========================================
 # CONFIG
@@ -35,75 +34,51 @@ app.secret_key = os.urandom(24)
 logger = logging.getLogger(__name__)
 
 # =========================================
-# CAMERA BACKEND — picamera2 or OpenCV
+# STREAM PROXY — proxies from security container
 # =========================================
 
-try:
-    from picamera2 import Picamera2
-    PICAMERA2_AVAILABLE = True
-    logger.info("picamera2 available — using RPi CSI camera backend.")
-except ImportError:
-    PICAMERA2_AVAILABLE = False
-    logger.info("picamera2 not available — using OpenCV backend.")
-
-camera_lock = threading.Lock()
-camera_available = False
-picam = None
-opencv_cam = None
-
-def init_camera():
-    global camera_available, picam, opencv_cam
-
-    if PICAMERA2_AVAILABLE:
-        try:
-            picam = Picamera2()
-            cfg = picam.create_video_configuration(
-                main={"size": (640, 480), "format": "RGB888"}
-            )
-            picam.configure(cfg)
-            picam.start()
-            time.sleep(1)
-            camera_available = True
-            logger.info("picamera2 started successfully.")
-        except Exception as e:
-            logger.error(f"picamera2 failed: {e}")
-            camera_available = False
-    else:
-        opencv_cam = cv2.VideoCapture(config.get("camera_index", 0), cv2.CAP_V4L2)
-        camera_available = opencv_cam.isOpened()
-        logger.info(f"OpenCV camera available: {camera_available}")
-
-def read_frame():
-    """Read a single frame from whichever backend is active."""
-    if PICAMERA2_AVAILABLE and picam:
-        frame = picam.capture_array()
-        # picamera2 returns RGB, convert to BGR for OpenCV
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        return True, frame
-    elif opencv_cam and opencv_cam.isOpened():
-        return opencv_cam.read()
-    return False, None
+STREAM_PORT = config.get("stream_port", 8080)
+STREAM_URL = f"http://localhost:{STREAM_PORT}/stream"
 
 def generate_frames():
-    global camera_available
+    """Proxy the MJPEG stream from the security container."""
+    placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+    cv2.putText(placeholder, "Security service offline", (130, 230),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(placeholder, "Start the security container first", (80, 270),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
+    _, placeholder_buf = cv2.imencode('.jpg', placeholder)
+    placeholder_bytes = placeholder_buf.tobytes()
+
     while True:
-        with camera_lock:
-            ret, frame = read_frame()
+        try:
+            with urllib.request.urlopen(STREAM_URL, timeout=3) as stream:
+                logger.info("Connected to security stream.")
+                bytes_buf = b""
+                while True:
+                    chunk = stream.read(4096)
+                    if not chunk:
+                        break
+                    bytes_buf += chunk
+                    start = bytes_buf.find(b'\xff\xd8')  # JPEG start
+                    end = bytes_buf.find(b'\xff\xd9')    # JPEG end
+                    if start != -1 and end != -1:
+                        jpg = bytes_buf[start:end + 2]
+                        bytes_buf = bytes_buf[end + 2:]
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
+        except Exception:
+            # Security container not running — show placeholder
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + placeholder_bytes + b'\r\n')
+            time.sleep(2)
 
-        if not ret or frame is None:
-            camera_available = False
-            break
-
-        ret2, buffer = cv2.imencode('.jpg', frame)
-        if not ret2:
-            continue
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(0.033)
-
-# Init camera on startup
-init_camera()
+def camera_is_available() -> bool:
+    try:
+        urllib.request.urlopen(f"http://localhost:{STREAM_PORT}/stream", timeout=1).close()
+        return True
+    except Exception:
+        return False
 
 # =========================================
 # HELPERS
@@ -118,10 +93,6 @@ def decode_base64_image(data_url: str):
 def validate_and_save_face(img, name: str) -> tuple[bool, str]:
     if img is None:
         return False, "Could not read image."
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    locs = face_recognition.face_locations(rgb)
-    if not locs:
-        return False, "No face detected. Try again."
     os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
     path = os.path.join(KNOWN_FACES_DIR, f"{name}.jpg")
     cv2.imwrite(path, img)
@@ -196,7 +167,7 @@ def dashboard():
     return render_template("dashboard.html",
                            strangers=strangers,
                            logs=logs,
-                           camera_available=camera_available)
+                           camera_available=camera_is_available())
 
 # =========================================
 # ROUTES — CAMERA FEED
@@ -211,7 +182,7 @@ def video_feed():
 @app.route("/camera_status")
 @login_required
 def camera_status():
-    return jsonify({"available": camera_available})
+    return jsonify({"available": camera_is_available()})
 
 # =========================================
 # ROUTES — REGISTER FACE
@@ -239,16 +210,10 @@ def register():
             return redirect(url_for("register"))
 
         elif source == "rpi":
-            if not camera_available:
-                flash("RPi camera is offline.")
+            if not camera_is_available():
+                flash("Security stream is offline. Start the security container first.")
                 return redirect(url_for("register"))
-            with camera_lock:
-                ret, frame = read_frame()
-            if not ret:
-                flash("Failed to capture from RPi camera.")
-                return redirect(url_for("register"))
-            ok, msg = validate_and_save_face(frame, name)
-            flash(msg)
+            flash("Use the webcam capture option instead — RPi camera is owned by security container.")
             return redirect(url_for("register"))
 
     faces = []
@@ -256,7 +221,7 @@ def register():
         faces = [os.path.splitext(f)[0] for f in os.listdir(KNOWN_FACES_DIR)
                  if f.lower().endswith((".jpg", ".png"))]
 
-    return render_template("register.html", faces=faces, camera_available=camera_available)
+    return render_template("register.html", faces=faces, camera_available=camera_is_available())
 
 # =========================================
 # ROUTES — DELETE FACE
@@ -289,4 +254,4 @@ def stranger_image(filename):
 # =========================================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False)

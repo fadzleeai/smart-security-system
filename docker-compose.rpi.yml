@@ -17,10 +17,6 @@ services:
       - /run/udev:/run/udev:ro
 
   web:
-    devices:
-      - /dev/video0:/dev/video0
-      - /dev/media0:/dev/media0
-      - /dev/media1:/dev/media1
     volumes:
       - /run/udev:/run/udev:ro
 
@@ -35,3 +31,6 @@ services:
   admin:
     devices:
       - /dev/video0:/dev/video0
+      - /dev/gpiomem:/dev/gpiomem
+    group_add:
+      - audio

@@ -18,7 +18,7 @@ class FaceRecognitionEngine:
 
         self.known_face_encodings = []
         self.known_face_names = []
-        self.unknown_counter = 0
+        self.unknown_counters = {}  # track each unknown face separately by location hash
 
         self.load_known_faces()
 
@@ -79,10 +79,10 @@ class FaceRecognitionEngine:
     # RISK SYSTEM
     # =========================================
 
-    def update_risk(self, name: str) -> tuple[int, str]:
+    def update_risk(self, name: str, face_key: str = "default") -> tuple[int, str]:
         if name == "Unknown":
-            self.unknown_counter += 1
-            count = self.unknown_counter
+            self.unknown_counters[face_key] = self.unknown_counters.get(face_key, 0) + 1
+            count = self.unknown_counters[face_key]
 
             if count < self.risk_medium_threshold:
                 risk = "Low"
@@ -93,7 +93,8 @@ class FaceRecognitionEngine:
 
             return count, risk
         else:
-            self.unknown_counter = 0
+            # Reset counter for this face slot when authorized face appears
+            self.unknown_counters.pop(face_key, None)
             return 0, "Safe"
 
     # =========================================
@@ -106,9 +107,11 @@ class FaceRecognitionEngine:
 
         results = []
 
-        for encoding, location in zip(face_encodings, face_locations):
+        for i, (encoding, location) in enumerate(zip(face_encodings, face_locations)):
             name, confidence = self.recognize_face(encoding)
-            count, risk = self.update_risk(name)
+            # Use face index as key — simple per-slot tracking
+            face_key = str(i)
+            count, risk = self.update_risk(name, face_key)
 
             if name != "Unknown":
                 result = {
