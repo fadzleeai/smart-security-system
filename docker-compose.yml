@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
 
   security:
@@ -42,41 +40,3 @@ services:
     network_mode: host
 
     command: python3 src/webapp.py
-
-  register:
-    image: smart_security
-    container_name: smart_security_register
-    privileged: true
-    stdin_open: true
-    tty: true
-
-    volumes:
-      - ./known_faces:/app/known_faces
-      - ./config.json:/app/config.json
-
-    environment:
-      - CONFIG_PATH=/app/config.json
-      - KNOWN_FACES_DIR=/app/known_faces
-      - DISPLAY=${DISPLAY:-}
-
-    command: python3 src/register_face.py
-
-  admin:
-    image: smart_security
-    container_name: smart_security_admin
-    stdin_open: true
-    tty: true
-
-    volumes:
-      - ./known_faces:/app/known_faces
-      - ./strangers:/app/strangers
-      - ./logs:/app/logs
-      - ./config.json:/app/config.json
-
-    environment:
-      - CONFIG_PATH=/app/config.json
-      - KNOWN_FACES_DIR=/app/known_faces
-      - STRANGERS_DIR=/app/strangers
-      - DISPLAY=${DISPLAY:-}
-
-    command: python3 admin.py

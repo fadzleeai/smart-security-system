@@ -213,7 +213,27 @@ def register():
             if not camera_is_available():
                 flash("Security stream is offline. Start the security container first.")
                 return redirect(url_for("register"))
-            flash("Use the webcam capture option instead — RPi camera is owned by security container.")
+            try:
+                # Grab a single frame from the existing MJPEG stream
+                with urllib.request.urlopen(STREAM_URL, timeout=5) as stream:
+                    bytes_buf = b""
+                    while True:
+                        chunk = stream.read(4096)
+                        if not chunk:
+                            break
+                        bytes_buf += chunk
+                        start = bytes_buf.find(b'\xff\xd8')
+                        end = bytes_buf.find(b'\xff\xd9')
+                        if start != -1 and end != -1:
+                            jpg = bytes_buf[start:end + 2]
+                            img_array = np.frombuffer(jpg, np.uint8)
+                            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                            break
+                ok, msg = validate_and_save_face(img, name)
+                flash(msg)
+            except Exception as e:
+                logger.error(f"Failed to grab frame from stream: {e}")
+                flash("Failed to capture from RPi camera. Try again.")
             return redirect(url_for("register"))
 
     faces = []
