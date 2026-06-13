@@ -1,3 +1,7 @@
 #!/bin/bash
-
-docker compose -f docker-compose.yml -f docker-compose.rpi.yml run --rm admin
+ 
+docker run --rm -it \
+  -v ./config.json:/app/config.json \
+  -v ./known_faces:/app/known_faces \
+  -v ./logs:/app/logs \
+  smart_security python3 src/admin.py
