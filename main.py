@@ -138,9 +138,9 @@ def main():
     os.makedirs(STRANGERS_DIR, exist_ok=True)
 
     video_capture = cv2.VideoCapture(config["camera_index"])
-    if not video_capture.isOpened():
-        logger.error("No camera found. Exiting.")
-        sys.exit(1)
+    camera_available = video_capture.isOpened()
+    if not camera_available:
+        logger.warning("No camera found. Running without camera — face recognition disabled.")
 
     frame_skip = config["frame_skip"]
     frame_count = 0
@@ -175,6 +175,11 @@ def main():
             # =====================================
             # RECOGNITION LOOP (active after motion)
             # =====================================
+
+            if not camera_available:
+                logger.warning("Camera not connected — skipping face recognition.")
+                time.sleep(config["sleep_after_detection_seconds"])
+                continue
 
             while True:
                 ret, frame = video_capture.read()
