@@ -3,3 +3,6 @@ opencv-python-headless==4.9.0.80
 numpy==1.26.4
 flask==3.0.3
 RPi.GPIO==0.7.1; sys_platform == "linux"
+gpiozero
+lgpio
+pyopenssl
