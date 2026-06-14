@@ -42,8 +42,8 @@ WORKDIR /app
 # =========================================
 # Limit dlib compilation to 1 core to prevent OOM
 # =========================================
-ENV DLIB_NUM_THREADS=1
-ENV MAKEFLAGS="-j1"
+# ENV DLIB_NUM_THREADS=1
+# ENV MAKEFLAGS="-j1"
 
 # =========================================
 # Python dependencies

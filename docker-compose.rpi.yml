@@ -4,18 +4,20 @@
 # =========================================
 
 services:
-
+ 
   security:
     devices:
       - /dev/video0:/dev/video0
       - /dev/gpiomem:/dev/gpiomem
+      - /dev/gpiochip0:/dev/gpiochip0
+      - /dev/gpiochip1:/dev/gpiochip1
       - /dev/media0:/dev/media0
       - /dev/media1:/dev/media1
     group_add:
       - audio
     volumes:
       - /run/udev:/run/udev:ro
-
+ 
   web:
     volumes:
       - /run/udev:/run/udev:ro
