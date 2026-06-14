@@ -1,8 +1,8 @@
 # Smart Security System
 
-AI-powered face recognition security system for Raspberry Pi 4.
+AI-powered face recognition security system for Raspberry Pi.
 
-**Hardware:** RPi 4 + USB/CSI camera + PIR motion sensor + MC38 door sensor + speaker
+**Hardware:** RPi 4/5 + USB/CSI camera + PIR motion sensor + MC38 door sensor + speaker
 
 ---
 
@@ -16,7 +16,7 @@ AI-powered face recognition security system for Raspberry Pi 4.
    - Door opened by authorized person → entry logged
    - Door opened by unauthorized person → alarm triggered, stranger image saved
 6. Stranger images saved locally with timestamp and risk level
-7. Camera sleeps after no activity
+7. Camera sleeps after no face detected for X seconds
 8. Web dashboard available for live monitoring and face registration
 
 ---
@@ -24,14 +24,13 @@ AI-powered face recognition security system for Raspberry Pi 4.
 ## Project Structure
 
 ```
-Smart_Security/
+smart-security-system/
 ├── main.py                      # Entry point
-├── admin.py                     # Admin CLI
 ├── config.json                  # All settings (edit without rebuild)
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml           # Base config (Windows/Mac dev)
-├── docker-compose.rpi.yml       # RPi overrides (camera + GPIO)
+├── docker-compose.yml           # Base compose config
+├── docker-compose.rpi.yml       # RPi overrides (camera + GPIO devices)
 ├── start.sh                     # Start everything on RPi
 ├── stop.sh                      # Stop everything
 ├── admin.sh                     # Open admin CLI
@@ -45,8 +44,9 @@ Smart_Security/
 └── src/
     ├── face_recognition_engine.py
     ├── motion_sensor.py
+    ├── door_sensor.py
     ├── speaker.py
-    ├── register_face.py
+    ├── admin.py
     └── webapp.py
 ```
 
@@ -77,41 +77,50 @@ git clone https://github.com/fadzleeai/smart-security-system.git
 cd smart-security-system
 ```
 
-### 2. Enable camera on RPi (first time only)
+### 2. Install Docker (first time only)
 
 ```bash
-sudo raspi-config
-# Interface Options → Camera → Enable
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
-### 3. Run startup script
+### 3. Transfer the pre-built image from your laptop
+
+```bash
+# On laptop
+docker save smart_security -o smart_security.tar
+scp smart_security.tar admin@<pi-ip>:~/
+
+# On Pi
+docker load < smart_security.tar
+```
+
+> Or copy via USB drive for faster transfer.
+
+### 4. Run startup script
 
 ```bash
 bash start.sh
 ```
 
-That's it. The script will:
-- Check Docker is installed
-- Prompt to register faces if none exist
-- Build the Docker image if needed (first time is slow — dlib compiles from source)
-- Start the security system and web dashboard
-- Print your web dashboard URL
+### 5. Access web dashboard
 
-### 4. Access web dashboard
+Open from any device on the same network:
+```
+https://<rpi-ip>:5000
+```
+> Browser will warn about self-signed certificate — click **Advanced → Proceed anyway**.
 
-Open from any device on the same WiFi:
-```
-http://<rpi-ip>:5000
-```
 Password: `admin123` (change in `config.json` → `web_password`)
 
-### 5. Admin panel (via SSH)
+### 6. Admin panel (local only, via SSH)
 
 ```bash
 bash admin.sh
 ```
 
-### 6. Stop everything
+### 7. Stop everything
 
 ```bash
 bash stop.sh
@@ -125,7 +134,7 @@ bash stop.sh
 |------|-----|-------------|
 | Login | `/login` | Password protected |
 | Dashboard | `/` | Live camera feed, activity log, stranger captures |
-| Register | `/register` | Register faces via webcam or RPi camera |
+| Register | `/register` | Register faces via laptop webcam or RPi camera stream |
 
 ---
 
@@ -158,48 +167,52 @@ bash stop.sh
 The system runs in mock mode on non-RPi machines:
 - **Motion sensor** → always returns motion detected
 - **GPIO** → skipped gracefully
-- **Speaker** → prints TTS text to console if no audio engine found
+- **Camera** → warning logged, system continues without face recognition
+- **Speaker** → prints TTS text to console
 
 **Run directly (no Docker):**
 ```bash
 python main.py
-python src/webapp.py   # web dashboard at http://localhost:5000
+python src/webapp.py   # web dashboard at https://localhost:5000
 ```
 
-**Run via Docker:**
+---
+
+## Rebuilding After Code Changes
+
+Build on laptop and transfer to Pi:
 ```bash
-docker compose up security
-docker compose up web
-docker compose run admin
+# Laptop
+docker buildx build --platform linux/arm64 -t smart_security . --load
+docker save smart_security -o smart_security.tar
+scp smart_security.tar admin@<pi-ip>:~/
+
+# Pi
+docker load < smart_security.tar
+bash stop.sh && bash start.sh
 ```
+
+> Rebuilds are fast for code-only changes — Docker caches all system deps and dlib.
 
 ---
 
 ## Config Reference (`config.json`)
 
-| Key                             | Default   | Description                            |
-|---------------------------------|-----------|----------------------------------------|
-| `tolerance`                     | 0.5       | Face match threshold (0.0–1.0)         |
-| `gpio_pin`                      | 17        | PIR sensor GPIO pin (BCM)              |
-| `door_sensor_pin`               | 6         | MC38 door sensor GPIO pin (BCM)        |
-| `camera_index`                  | 0         | Camera device index                    |
-| `frame_skip`                    | 2         | Process every Nth frame (performance)  |
-| `camera_warmup_seconds`         | 2         | Seconds to wait after motion detected  |
-| `sleep_after_detection_seconds` | 5         | Seconds of inactivity before sleep     |
-| `tts_language`                  | en        | TTS language code                      |
-| `tts_speed`                     | 150       | TTS speed (words per minute)           |
-| `unknown_risk_medium_threshold` | 3         | Unknown detections before Medium risk  |
-| `unknown_risk_high_threshold`   | 5         | Unknown detections before HIGH alert   |
-| `web_password`                  | admin123  | Web dashboard password                 |
-| `web_port`                      | 5000      | Web dashboard port                     |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `tolerance` | 0.5 | Face match threshold (0.0–1.0, lower = stricter) |
+| `gpio_pin` | 17 | PIR sensor GPIO pin (BCM) |
+| `door_sensor_pin` | 6 | Door sensor GPIO pin (BCM) |
+| `camera_index` | 0 | Camera device index |
+| `frame_skip` | 2 | Process every Nth frame (performance) |
+| `camera_warmup_seconds` | 2 | Seconds to wait after motion detected |
+| `sleep_after_detection_seconds` | 5 | Seconds of no face before re-arm |
+| `tts_language` | en | TTS language code |
+| `tts_speed` | 150 | TTS speed (words per minute) |
+| `unknown_risk_medium_threshold` | 3 | Unknown detections before Medium risk |
+| `unknown_risk_high_threshold` | 5 | Unknown detections before HIGH alert |
+| `web_password` | admin123 | Web dashboard password |
+| `web_port` | 5000 | Web dashboard port |
+| `stream_port` | 8080 | Internal camera stream port |
 
 > Config changes take effect on next restart. No rebuild needed.
-
----
-
-## Rebuild After Code Changes
-
-```bash
-docker compose build
-bash start.sh
-```
