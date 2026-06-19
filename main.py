@@ -7,70 +7,12 @@ import sys
 import threading
 from flask import Flask, Response
 
-try:
-    from picamera2 import Picamera2
-    PICAMERA2_AVAILABLE = True
-except (ImportError, RuntimeError):
-    PICAMERA2_AVAILABLE = False
-
-# =========================================
-# CAMERA ADAPTER
-# =========================================
-class Camera:
-
-    def __init__(self, camera_index: int, width: int = 640, height: int = 480):
-        self.backend = None
-        self._picam = None
-        self._cv_cap = None
-        self.init_error = None
-
-        if PICAMERA2_AVAILABLE:
-            try:
-                self._picam = Picamera2()
-                config = self._picam.create_video_configuration(
-                    main={"size": (width, height), "format": "RGB888"}
-                )
-                self._picam.configure(config)
-                self._picam.start()
-                time.sleep(1)  # let auto-exposure/white-balance settle
-                self.backend = "picamera2"
-            except Exception as exc:
-                self.init_error = exc
-                self._picam = None
-
-        if self.backend is None:
-            self._cv_cap = cv2.VideoCapture(camera_index)
-            if self._cv_cap.isOpened():
-                self.backend = "cv2"
-
-    def isOpened(self) -> bool:
-        return self.backend is not None
-
-    def read(self):
-        """Returns (ret, frame) as BGR, matching cv2.VideoCapture.read()."""
-        if self.backend == "picamera2":
-            try:
-                frame_rgb = self._picam.capture_array()
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                return True, frame_bgr
-            except Exception:
-                return False, None
-        elif self.backend == "cv2":
-            return self._cv_cap.read()
-        return False, None
-
-    def release(self):
-        if self.backend == "picamera2" and self._picam is not None:
-            try:
-                self._picam.stop()
-            except Exception:
-                pass
-        elif self.backend == "cv2" and self._cv_cap is not None:
-            self._cv_cap.release()
+from src.camera import Camera
 
 # =========================================
 # LOGGING SETUP
 # =========================================
+
 def setup_logging(log_to_file: bool, log_file: str):
     handlers = [logging.StreamHandler(sys.stdout)]
 
@@ -87,6 +29,7 @@ def setup_logging(log_to_file: bool, log_file: str):
 # =========================================
 # LOAD CONFIG
 # =========================================
+
 CONFIG_PATH     = os.environ.get("CONFIG_PATH",     "config.json")
 KNOWN_FACES_DIR = os.environ.get("KNOWN_FACES_DIR", "known_faces")
 STRANGERS_DIR   = os.environ.get("STRANGERS_DIR",   "strangers")
@@ -99,6 +42,7 @@ def load_config() -> dict:
 # =========================================
 # SAVE STRANGER IMAGE
 # =========================================
+
 def save_stranger(frame, risk: str, logger):
     try:
         os.makedirs(STRANGERS_DIR, exist_ok=True)
@@ -112,7 +56,12 @@ def save_stranger(frame, risk: str, logger):
 # =========================================
 # DRAW RESULTS ON FRAME
 # =========================================
+
 def draw_results(frame, results, scale: int = 2):
+    """
+    Draw bounding boxes and labels for each result.
+    scale=2 because the engine now uses FRAME_SCALE=0.5 (was 0.25 before).
+    """
     for result in results:
         top, right, bottom, left = result["location"]
         top    *= scale
@@ -126,7 +75,7 @@ def draw_results(frame, results, scale: int = 2):
         elif action == "DENIED":
             color = (0, 0, 255)
         else:
-            color = (0, 165, 255)
+            color = (0, 165, 255)   # orange for VERIFYING / WAIT_LIVENESS
 
         name      = result["name"]
         risk      = result.get("risk", "")
@@ -139,6 +88,7 @@ def draw_results(frame, results, scale: int = 2):
             f"Liveness: {liveness}",
         ]
 
+        # background panel above the box
         panel_top    = max(0, top - 60)
         panel_right  = min(frame.shape[1] - 1, left + 380)
         cv2.rectangle(frame, (left, panel_top), (panel_right, top), color, cv2.FILLED)
@@ -153,12 +103,14 @@ def draw_results(frame, results, scale: int = 2):
 # =========================================
 # SHARED FRAME STATE (for stream server)
 # =========================================
+
 latest_frame_bytes = None
 frame_lock = threading.Lock()
 
 # =========================================
 # STREAM SERVER
 # =========================================
+
 stream_app = Flask(__name__)
 
 @stream_app.route("/stream")
@@ -179,18 +131,9 @@ def start_stream_server(port: int = 8080):
     stream_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
 # =========================================
-# BACKGROUND MOTION THREAD
-# =========================================
-def motion_listener(motion_sensor, motion_event):
-    """Waits for motion in the background so it doesn't freeze the camera."""
-    while True:
-        motion_sensor.wait_for_motion()
-        motion_event.set()
-        time.sleep(2) # Prevent rapid re-triggering
-
-# =========================================
 # MAIN
 # =========================================
+
 def main():
     config = load_config()
     setup_logging(config["log_to_file"], config["log_file"])
@@ -216,7 +159,7 @@ def main():
     engine = FaceRecognitionEngine(
         known_faces_dir=KNOWN_FACES_DIR,
         models_dir=MODELS_DIR,
-        tolerance=config.get("tolerance", 0.5),
+        tolerance=config.get("tolerance", 0.5),            # kept for compat
         risk_medium_threshold=config.get("unknown_risk_medium_threshold", 3),
         risk_high_threshold=config.get("unknown_risk_high_threshold",   5),
     )
@@ -248,98 +191,118 @@ def main():
     threading.Thread(target=start_stream_server, args=(stream_port,), daemon=True).start()
     logger.info(f"Stream server started on port {stream_port}")
 
-    # Start the background motion detection thread
-    motion_event = threading.Event()
-    threading.Thread(target=motion_listener, args=(motion_sensor, motion_event), daemon=True).start()
-
-    logger.info("System ready. Camera live 24/7. Waiting for motion to activate scanner...")
-
-    scanning_active = False
-    last_detection_time = 0
-    last_stranger_save = 0
-    current_results = []
-    spoken_this_frame = set()
+    logger.info("System ready. Waiting for motion...")
 
     try:
         while True:
+
+            # =====================================
+            # WAIT FOR MOTION
+            # =====================================
+
+            motion_sensor.wait_for_motion()
+
+            logger.info("Motion detected — activating camera...")
+            speaker.say("Motion detected. Scanning.")
+
+            time.sleep(config["camera_warmup_seconds"])
+
+            last_detection_time = time.time()
+            last_stranger_save  = 0
+
+            # =====================================
+            # RECOGNITION LOOP
+            # =====================================
+
             if not camera_available:
-                time.sleep(1)
+                logger.warning("Camera not connected — skipping face recognition.")
+                time.sleep(config["sleep_after_detection_seconds"])
                 continue
 
-            # 1. ALWAYS READ THE CAMERA
-            ret, frame = video_capture.read()
-            if not ret:
-                logger.error("Failed to read from camera.")
-                time.sleep(0.5)
-                continue
+            while True:
+                ret, frame = video_capture.read()
+                if not ret:
+                    logger.error("Failed to read from camera.")
+                    break
 
-            # 2. CHECK IF MOTION WAS DETECTED
-            if motion_event.is_set():
-                logger.info("Motion detected — waking up Face Recognition Engine...")
-                speaker.say("Motion detected. Scanning.")
-                scanning_active = True
-                last_detection_time = time.time()
-                spoken_this_frame.clear()
-                motion_event.clear()
-
-            # 3. RUN FACE RECOGNITION (Only if scanning is active)
-            frame_to_display = frame.copy()
-
-            if scanning_active:
                 frame_count += 1
-                
-                # Only process heavy AI on skipped frames to keep video smooth
-                if frame_count % frame_skip == 0:
-                    small_frame     = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-                    rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-                    current_results = engine.process_frame(rgb_small_frame)
+                if frame_count % frame_skip != 0:
+                    continue
 
-                    for result in current_results:
-                        voice = result["voice"]
-                        if voice not in spoken_this_frame:
-                            speaker.say(voice)
-                            spoken_this_frame.add(voice)
+                # engine uses FRAME_SCALE=0.5 internally; draw_results uses scale=2
+                small_frame     = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-                        last_detection_time = time.time()
-                        authorized = result["action"] == "AUTHORIZED"
-                        
-                        door_sensor.handle_door_event(
-                            authorized=authorized,
-                            name=result["name"],
-                            speaker=speaker,
-                            save_stranger_fn=save_stranger if not authorized else None,
-                            frame=frame,
-                            risk=result["risk"],
-                        )
+                results = engine.process_frame(rgb_small_frame)
 
-                        if result["action"] == "DENIED":
-                            now = time.time()
-                            if now - last_stranger_save > 10:
-                                save_stranger(frame, result["risk"], logger)
-                                last_stranger_save = now
+                # =====================================
+                # HANDLE RESULTS
+                # =====================================
 
-                # Draw the bounding boxes on the live feed
-                frame_to_display = draw_results(frame_to_display, current_results, scale=2)
+                spoken_this_frame = set()
 
-                # Check if it's time to go back to sleep
+                for result in results:
+                    voice = result["voice"]
+
+                    if voice not in spoken_this_frame:
+                        speaker.say(voice)
+                        spoken_this_frame.add(voice)
+
+                    last_detection_time = time.time()
+
+                    # =====================================
+                    # DOOR SENSOR LOGIC
+                    # =====================================
+
+                    authorized = result["action"] == "AUTHORIZED"
+                    door_sensor.handle_door_event(
+                        authorized=authorized,
+                        name=result["name"],
+                        speaker=speaker,
+                        save_stranger_fn=save_stranger if not authorized else None,
+                        frame=frame,
+                        risk=result["risk"],
+                    )
+
+                    # =====================================
+                    # SAVE STRANGER IMAGE
+                    # =====================================
+
+                    if result["action"] == "DENIED":
+                        now = time.time()
+                        if now - last_stranger_save > 10:
+                            save_stranger(frame, result["risk"], logger)
+                            last_stranger_save = now
+
+                # =====================================
+                # DRAW & DISPLAY / STREAM
+                # =====================================
+
+                annotated = draw_results(frame, results, scale=2)
+
+                ret_enc, buffer = cv2.imencode('.jpg', annotated)
+                if ret_enc:
+                    with frame_lock:
+                        latest_frame_bytes = buffer.tobytes()
+
+                if has_display:
+                    cv2.imshow("Smart Security", annotated)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        logger.info("Quit key pressed.")
+                        raise KeyboardInterrupt
+
+                # =====================================
+                # SLEEP IF NO DETECTION FOR A WHILE
+                # =====================================
+
                 if time.time() - last_detection_time > config["sleep_after_detection_seconds"]:
-                    logger.info("No activity. Face scanner going to sleep. Camera remains live.")
-                    scanning_active = False
-                    current_results = [] # Clear boxes
-
-            # 4. PUSH FRAME TO WEB APP
-            ret_enc, buffer = cv2.imencode('.jpg', frame_to_display)
-            if ret_enc:
-                with frame_lock:
-                    global latest_frame_bytes
-                    latest_frame_bytes = buffer.tobytes()
-
-            # 5. LOCAL DISPLAY (If connected to monitor)
-            if has_display:
-                cv2.imshow("Smart Security", frame_to_display)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    logger.info("Quit key pressed.")
-                    raise KeyboardInterrupt
+                    logger.info("No activity. Going back to sleep.")
+                    if has_display:
+                        try:
+                            cv2.destroyAllWindows()
+                        except cv2.error:
+                            pass
+                    break
 
     except KeyboardInterrupt:
         logger.info("Shutting down.")
