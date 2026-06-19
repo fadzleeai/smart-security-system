@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import threading
+import argparse
 from flask import Flask, Response
 
 try:
@@ -14,17 +15,17 @@ except (ImportError, RuntimeError):
     PICAMERA2_AVAILABLE = False
 
 # =========================================
-# CAMERA ADAPTER
+# SMART CAMERA ADAPTER
 # =========================================
 class Camera:
-
-    def __init__(self, camera_index: int, width: int = 640, height: int = 480):
+    def __init__(self, camera_index: int, mode: str = "auto", width: int = 640, height: int = 480):
         self.backend = None
         self._picam = None
         self._cv_cap = None
         self.init_error = None
 
-        if PICAMERA2_AVAILABLE:
+        # 1. Try picamera2 if requested or in auto mode
+        if mode in ["auto", "picamera2"] and PICAMERA2_AVAILABLE:
             try:
                 self._picam = Picamera2()
                 config = self._picam.create_video_configuration(
@@ -35,19 +36,34 @@ class Camera:
                 time.sleep(1)  # let auto-exposure/white-balance settle
                 self.backend = "picamera2"
             except Exception as exc:
-                self.init_error = exc
+                if mode == "picamera2":
+                    self.init_error = f"picamera2 requested but failed: {exc}"
                 self._picam = None
 
-        if self.backend is None:
+        # 2. Try USB Webcam (V4L2) if requested or if auto fell through
+        if self.backend is None and mode in ["auto", "webcam"]:
+            self._cv_cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)
+            if self._cv_cap.isOpened():
+                self._cv_cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                self._cv_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                self.backend = "webcam (V4L2)"
+            else:
+                if mode == "webcam":
+                    self.init_error = f"Failed to open USB camera at index {camera_index} using V4L2."
+
+        # 3. Final safety fallback to standard OpenCV
+        if self.backend is None and mode == "auto":
             self._cv_cap = cv2.VideoCapture(camera_index)
             if self._cv_cap.isOpened():
-                self.backend = "cv2"
+                self.backend = "cv2 (default)"
+            else:
+                self.init_error = "All camera initializations failed."
 
     def isOpened(self) -> bool:
         return self.backend is not None
 
     def read(self):
-        """Returns (ret, frame) as BGR, matching cv2.VideoCapture.read()."""
+        """Returns (ret, frame) as BGR."""
         if self.backend == "picamera2":
             try:
                 frame_rgb = self._picam.capture_array()
@@ -55,7 +71,7 @@ class Camera:
                 return True, frame_bgr
             except Exception:
                 return False, None
-        elif self.backend == "cv2":
+        elif self.backend and "webcam" in self.backend or "cv2" in self.backend:
             return self._cv_cap.read()
         return False, None
 
@@ -65,7 +81,7 @@ class Camera:
                 self._picam.stop()
             except Exception:
                 pass
-        elif self.backend == "cv2" and self._cv_cap is not None:
+        elif self._cv_cap is not None:
             self._cv_cap.release()
 
 # =========================================
@@ -192,6 +208,17 @@ def motion_listener(motion_sensor, motion_event):
 # MAIN
 # =========================================
 def main():
+    # 1. Parse Command Line Arguments
+    parser = argparse.ArgumentParser(description="Smart Security System")
+    parser.add_argument(
+        "--camera", 
+        type=str, 
+        choices=["auto", "webcam", "picamera2"], 
+        default="auto",
+        help="Choose the camera backend to use (default: auto)."
+    )
+    args = parser.parse_args()
+
     config = load_config()
     setup_logging(config["log_to_file"], config["log_file"])
     logger = logging.getLogger(__name__)
@@ -230,14 +257,16 @@ def main():
 
     os.makedirs(STRANGERS_DIR, exist_ok=True)
 
-    video_capture    = Camera(config["camera_index"])
+    # 2. Initialize Camera with requested mode
+    video_capture = Camera(config["camera_index"], mode=args.camera)
     camera_available = video_capture.isOpened()
+    
     if not camera_available:
-        logger.warning("No camera found. Running without camera — face recognition disabled.")
+        if video_capture.init_error:
+            logger.warning(video_capture.init_error)
+        logger.warning("Running without camera — face recognition disabled.")
     else:
         logger.info(f"Camera ready (backend: {video_capture.backend})")
-        if video_capture.backend == "cv2" and video_capture.init_error is not None:
-            logger.warning(f"picamera2 init failed, fell back to cv2: {video_capture.init_error}")
 
     frame_skip  = config["frame_skip"]
     frame_count = 0
@@ -268,7 +297,7 @@ def main():
 
             # 1. ALWAYS READ THE CAMERA
             ret, frame = video_capture.read()
-            if not ret:
+            if not ret or frame is None:
                 logger.error("Failed to read from camera.")
                 time.sleep(0.5)
                 continue
@@ -355,7 +384,6 @@ def main():
         speaker.cleanup()
         door_sensor.cleanup()
         logger.info("=== Smart Security System Stopped ===")
-
 
 if __name__ == "__main__":
     main()
