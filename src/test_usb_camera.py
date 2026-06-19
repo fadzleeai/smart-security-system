@@ -38,4 +38,4 @@ def test_webcam(camera_index=0):
 
 if __name__ == '__main__':
     # CHANGE THIS NUMBER if index 0 fails (try 1, 2, or 3)
-    test_webcam(0)
+    test_webcam(1)
