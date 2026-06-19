@@ -68,7 +68,8 @@ def generate_frames():
                         bytes_buf = bytes_buf[end + 2:]
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
-        except Exception:
+        except Exception as e:
+            logger.error(f"Stream proxy error: {e!r}")
             # Security container not running — show placeholder
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + placeholder_bytes + b'\r\n')
