@@ -274,4 +274,9 @@ def stranger_image(filename):
 # =========================================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False, ssl_context="adhoc")
+    # ssl_context="adhoc" intentionally removed: Werkzeug's dev-server SSL
+    # wrapper cannot reliably hold a long-lived MJPEG streaming connection
+    # open and crashes with SSLError/BrokenPipeError once frames are
+    # actually flowing continuously. This is a local-network tool; plain
+    # HTTP is fine. Use http://<pi-ip>:5000 in the browser, not https://.
+    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False)
