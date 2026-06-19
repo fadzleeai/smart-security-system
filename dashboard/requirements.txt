@@ -1,0 +1,21 @@
+# requirements.txt
+# Install on Raspberry Pi with:
+#   pip install -r requirements.txt
+#
+# RAM note: plotly adds ~50 MB. If RAM is very tight, replace plotly charts
+# with st.bar_chart() (uses Vega-Lite, lighter) — see page2_analytics.py comments.
+
+streamlit>=1.35.0
+pandas>=2.0.0
+plotly>=5.18.0
+
+# ── For real MQTT integration (uncomment when ready) ──────────────────────────
+# paho-mqtt>=1.6.1
+
+# ── For live RAM monitoring on the Pi (uncomment when ready) ─────────────────
+# psutil>=5.9.0
+
+# ── Already on the Pi from your main project ─────────────────────────────────
+# opencv-python       (installed for face recognition backend)
+# face_recognition    (installed for face recognition backend)
+# RPi.GPIO            (installed for sensor backend)
