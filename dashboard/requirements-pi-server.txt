@@ -1,0 +1,10 @@
+# requirements-pi-server.txt — RASPBERRY PI SIDE ONLY
+# Install with:
+#   pip install -r requirements-pi-server.txt
+#
+# This is ONLY for pi_server.py (the tiny API). It does NOT include your
+# face recognition / OpenCV / RPi.GPIO dependencies — those stay exactly
+# as they are in your existing backend, completely separate from this.
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0

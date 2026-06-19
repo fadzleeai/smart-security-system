@@ -7,7 +7,7 @@ unsafe_allow_html=True. Door illustration uses pure CSS divs instead.
 """
 
 import streamlit as st
-from data_source import get_system_state, get_ram_usage
+from data_source import get_system_state, get_ram_usage, stop_alarm, get_alarm_status
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -108,15 +108,35 @@ def render():
     state = get_system_state()
     ram   = get_ram_usage()
 
+    # ── Alarm dismiss tracking ────────────────────────────────────────────────
+    # session_state gives an immediate UI response (banner hides the moment
+    # you click). get_alarm_status() also checks the Pi directly, so the
+    # dismissal survives a page refresh too — not just this browser tab.
+    if "alarm_dismissed_locally" not in st.session_state:
+        st.session_state["alarm_dismissed_locally"] = False
+
+    pi_alarm_status = get_alarm_status()
+    is_dismissed = st.session_state["alarm_dismissed_locally"] or pi_alarm_status.get("dismissed", False)
+
+    # A NEW alert (different from the one last dismissed) should show again —
+    # otherwise a real second intruder would get silently hidden forever.
+    if "last_seen_threat" not in st.session_state:
+        st.session_state["last_seen_threat"] = None
+    if state["threat_level"] in ("Suspicious", "Warning") and state["threat_level"] != st.session_state["last_seen_threat"]:
+        is_dismissed = False
+        st.session_state["alarm_dismissed_locally"] = False
+    st.session_state["last_seen_threat"] = state["threat_level"]
+
     # ── Alert banner ──────────────────────────────────────────────────────────
-    if state["threat_level"] == "Suspicious":
+    if not is_dismissed and state["threat_level"] == "Suspicious":
         st.markdown(
             '<div class="alert-danger">🚨 Security alert — repeated unknown visitor detected</div>',
             unsafe_allow_html=True)
-    elif state["threat_level"] == "Warning":
+    elif not is_dismissed and state["threat_level"] == "Warning":
         st.markdown(
             '<div class="alert-warning">⚠ Unknown visitor detected — monitoring</div>',
             unsafe_allow_html=True)
+
 
     # ── Row 1: Smart event panel + Door status ────────────────────────────────
     col_event, col_door = st.columns([3, 2], gap="medium")
@@ -262,12 +282,21 @@ def render():
     # ── Stop alarm ────────────────────────────────────────────────────────────
     st.markdown("---")
 
-    # ── REAL DATA SWAP ──────────────────────────────────────────────────────
-    # Replace button callback with MQTT publish to Pi:
-    #   import paho.mqtt.publish as publish
-    #   publish.single("security/alarm/stop", "1", hostname=PI_IP)
-    # ────────────────────────────────────────────────────────────────────────
-    if st.button("🔕  Stop alarm / deactivate alert", type="primary", use_container_width=True):
-        st.success("Alarm deactivated — command sent to Raspberry Pi via MQTT.")
+    # This now actually calls the Pi via HTTP (through Cloudflare Tunnel),
+    # not MQTT — see stop_alarm() in data_source.py. The button only hides
+    # the banner / sends the dismiss request; your detection backend must
+    # separately check for the dismiss flag to silence a physical buzzer —
+    # see check_alarm_dismiss_example() in pi_server.py.
+    btn_disabled = is_dismissed or state["threat_level"] not in ("Suspicious", "Warning")
+    btn_label = "🔕  Alarm already stopped" if is_dismissed else "🔕  Stop alarm / deactivate alert"
 
-    st.caption("Sends MQTT command: Streamlit → Raspberry Pi → deactivate buzzer")
+    if st.button(btn_label, type="primary", use_container_width=True, disabled=btn_disabled):
+        result = stop_alarm()
+        if result["success"]:
+            st.session_state["alarm_dismissed_locally"] = True
+            st.success(result["message"])
+            st.rerun()
+        else:
+            st.error(result["message"])
+
+    st.caption("Sends a stop request: Streamlit → Cloudflare Tunnel → Raspberry Pi (HTTP, not MQTT)")
