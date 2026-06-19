@@ -42,11 +42,11 @@ STREAM_PORT = config.get("stream_port", 8080)
 STREAM_URL = f"http://localhost:{STREAM_PORT}/stream"
 
 def generate_frames():
-    """Proxy the MJPEG stream from the security container."""
+    """Proxy the MJPEG stream from main.py's stream server."""
     placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.putText(placeholder, "Security service offline", (130, 230),
+    cv2.putText(placeholder, "Camera service offline", (130, 230),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(placeholder, "Start the security container first", (80, 270),
+    cv2.putText(placeholder, "Start main.py first", (140, 270),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
     _, placeholder_buf = cv2.imencode('.jpg', placeholder)
     placeholder_bytes = placeholder_buf.tobytes()
@@ -221,7 +221,7 @@ def register():
 
         elif source == "rpi":
             if not camera_is_available():
-                flash("Security stream is offline. Start the security container first.")
+                flash("Camera stream is offline. Start main.py first.")
                 return redirect(url_for("register"))
             try:
                 # Grab a single frame from the existing MJPEG stream
@@ -284,4 +284,10 @@ def stranger_image(filename):
 # =========================================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False, ssl_context="adhoc")
+    # NOTE: ssl_context="adhoc" intentionally removed. Werkzeug's dev-server
+    # SSL wrapper does not handle long-lived streaming responses (MJPEG)
+    # reliably and crashes with ssl.SSLError during chunked writes once the
+    # connection is held open for video_feed. This is a local-network tool,
+    # so plain HTTP is fine. If HTTPS is required later, put this behind a
+    # real reverse proxy (nginx/caddy) instead of Werkzeug's adhoc SSL.
+    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False)
