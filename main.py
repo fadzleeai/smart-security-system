@@ -7,6 +7,69 @@ import sys
 import threading
 from flask import Flask, Response
 
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+except (ImportError, RuntimeError):
+    PICAMERA2_AVAILABLE = False
+
+# =========================================
+# CAMERA ADAPTER
+# =========================================
+# Pi Camera Module (v2/v3, CSI) needs picamera2 — cv2.VideoCapture cannot
+# reliably read frames from libcamera-backed sensors on current Pi OS.
+# Falls back to cv2.VideoCapture for USB webcams / non-Pi dev machines.
+
+class Camera:
+
+    def __init__(self, camera_index: int, width: int = 640, height: int = 480):
+        self.backend = None
+        self._picam = None
+        self._cv_cap = None
+
+        if PICAMERA2_AVAILABLE:
+            try:
+                self._picam = Picamera2()
+                config = self._picam.create_video_configuration(
+                    main={"size": (width, height), "format": "RGB888"}
+                )
+                self._picam.configure(config)
+                self._picam.start()
+                time.sleep(1)  # let auto-exposure/white-balance settle
+                self.backend = "picamera2"
+            except Exception:
+                self._picam = None
+
+        if self.backend is None:
+            self._cv_cap = cv2.VideoCapture(camera_index)
+            if self._cv_cap.isOpened():
+                self.backend = "cv2"
+
+    def isOpened(self) -> bool:
+        return self.backend is not None
+
+    def read(self):
+        """Returns (ret, frame) as BGR, matching cv2.VideoCapture.read()."""
+        if self.backend == "picamera2":
+            try:
+                frame_rgb = self._picam.capture_array()
+                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                return True, frame_bgr
+            except Exception:
+                return False, None
+        elif self.backend == "cv2":
+            return self._cv_cap.read()
+        return False, None
+
+    def release(self):
+        if self.backend == "picamera2" and self._picam is not None:
+            try:
+                self._picam.stop()
+            except Exception:
+                pass
+        elif self.backend == "cv2" and self._cv_cap is not None:
+            self._cv_cap.release()
+
 # =========================================
 # LOGGING SETUP
 # =========================================
@@ -171,10 +234,12 @@ def main():
 
     os.makedirs(STRANGERS_DIR, exist_ok=True)
 
-    video_capture    = cv2.VideoCapture(config["camera_index"])
+    video_capture    = Camera(config["camera_index"])
     camera_available = video_capture.isOpened()
     if not camera_available:
         logger.warning("No camera found. Running without camera — face recognition disabled.")
+    else:
+        logger.info(f"Camera ready (backend: {video_capture.backend})")
 
     frame_skip  = config["frame_skip"]
     frame_count = 0
@@ -315,4 +380,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()  
+    main()

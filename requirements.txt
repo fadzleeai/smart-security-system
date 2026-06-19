@@ -6,3 +6,4 @@ RPi.GPIO==0.7.1; sys_platform == "linux"
 gpiozero
 lgpio
 pyopenssl
+picamera2
