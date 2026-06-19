@@ -4,6 +4,7 @@ import json
 import time
 import base64
 import logging
+import socket
 import urllib.request
 import numpy as np
 from datetime import datetime
@@ -74,10 +75,19 @@ def generate_frames():
             time.sleep(2)
 
 def camera_is_available() -> bool:
+    """
+    Check whether main.py's stream server is up by opening a raw TCP
+    connection to its port. We deliberately do NOT use urllib/requests
+    here: /stream is an infinite MJPEG generator that never finishes
+    sending a body, so a normal HTTP GET (even with a short timeout)
+    can time out waiting on the body even though the server is healthy
+    and already sent valid headers. A plain socket connect tells us
+    "is something listening on this port" without touching the stream.
+    """
     try:
-        urllib.request.urlopen(f"http://localhost:{STREAM_PORT}/stream", timeout=1).close()
-        return True
-    except Exception:
+        with socket.create_connection(("localhost", STREAM_PORT), timeout=1):
+            return True
+    except OSError:
         return False
 
 # =========================================
