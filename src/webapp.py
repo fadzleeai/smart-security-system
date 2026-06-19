@@ -4,7 +4,6 @@ import json
 import time
 import base64
 import logging
-import socket
 import urllib.request
 import numpy as np
 from datetime import datetime
@@ -42,85 +41,43 @@ STREAM_PORT = config.get("stream_port", 8080)
 STREAM_URL = f"http://localhost:{STREAM_PORT}/stream"
 
 def generate_frames():
-    """Proxy the MJPEG stream from main.py's stream server.
-
-    Uses a raw socket instead of urllib.request: urllib's `timeout`
-    applies to every individual socket read, not just connection setup.
-    Since /stream is a live MJPEG feed, there can be gaps between frames
-    (e.g. while motion isn't active main.py still pushes ~30fps, but any
-    hiccup can exceed a short urllib timeout and kill an otherwise-healthy
-    connection). Here we use a short connect timeout (fail fast if main.py
-    is down) and a separate, more generous read timeout.
-    """
+    """Proxy the MJPEG stream from the security container."""
     placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.putText(placeholder, "Camera service offline", (130, 230),
+    cv2.putText(placeholder, "Security service offline", (130, 230),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(placeholder, "Start main.py first", (140, 270),
+    cv2.putText(placeholder, "Start the security container first", (80, 270),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 180), 1)
     _, placeholder_buf = cv2.imencode('.jpg', placeholder)
     placeholder_bytes = placeholder_buf.tobytes()
 
-    CONNECT_TIMEOUT = 2
-    READ_TIMEOUT = 10  # generous: tolerates brief stalls between frames
-
     while True:
-        sock = None
         try:
-            sock = socket.create_connection(("localhost", STREAM_PORT), timeout=CONNECT_TIMEOUT)
-            sock.settimeout(READ_TIMEOUT)
-            request = f"GET /stream HTTP/1.1\r\nHost: localhost:{STREAM_PORT}\r\nConnection: close\r\n\r\n"
-            sock.sendall(request.encode())
-
-            logger.info("Connected to camera stream.")
-            bytes_buf = b""
-            headers_done = False
-
-            while True:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                bytes_buf += chunk
-
-                if not headers_done:
-                    header_end = bytes_buf.find(b"\r\n\r\n")
-                    if header_end == -1:
-                        continue
-                    bytes_buf = bytes_buf[header_end + 4:]
-                    headers_done = True
-
-                start = bytes_buf.find(b'\xff\xd8')  # JPEG start
-                end = bytes_buf.find(b'\xff\xd9')    # JPEG end
-                if start != -1 and end != -1 and end > start:
-                    jpg = bytes_buf[start:end + 2]
-                    bytes_buf = bytes_buf[end + 2:]
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
-        except Exception as e:
-            logger.error(f"Stream proxy error: {e!r}")
+            with urllib.request.urlopen(STREAM_URL, timeout=3) as stream:
+                logger.info("Connected to security stream.")
+                bytes_buf = b""
+                while True:
+                    chunk = stream.read(4096)
+                    if not chunk:
+                        break
+                    bytes_buf += chunk
+                    start = bytes_buf.find(b'\xff\xd8')  # JPEG start
+                    end = bytes_buf.find(b'\xff\xd9')    # JPEG end
+                    if start != -1 and end != -1:
+                        jpg = bytes_buf[start:end + 2]
+                        bytes_buf = bytes_buf[end + 2:]
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
+        except Exception:
+            # Security container not running — show placeholder
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + placeholder_bytes + b'\r\n')
             time.sleep(2)
-        finally:
-            if sock is not None:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
 
 def camera_is_available() -> bool:
-    """
-    Check whether main.py's stream server is up by opening a raw TCP
-    connection to its port. We deliberately do NOT use urllib/requests
-    here: /stream is an infinite MJPEG generator that never finishes
-    sending a body, so a normal HTTP GET (even with a short timeout)
-    can time out waiting on the body even though the server is healthy
-    and already sent valid headers. A plain socket connect tells us
-    "is something listening on this port" without touching the stream.
-    """
     try:
-        with socket.create_connection(("localhost", STREAM_PORT), timeout=1):
-            return True
-    except OSError:
+        urllib.request.urlopen(f"http://localhost:{STREAM_PORT}/stream", timeout=1).close()
+        return True
+    except Exception:
         return False
 
 # =========================================
@@ -254,7 +211,7 @@ def register():
 
         elif source == "rpi":
             if not camera_is_available():
-                flash("Camera stream is offline. Start main.py first.")
+                flash("Security stream is offline. Start the security container first.")
                 return redirect(url_for("register"))
             try:
                 # Grab a single frame from the existing MJPEG stream
@@ -317,10 +274,4 @@ def stranger_image(filename):
 # =========================================
 
 if __name__ == "__main__":
-    # NOTE: ssl_context="adhoc" intentionally removed. Werkzeug's dev-server
-    # SSL wrapper does not handle long-lived streaming responses (MJPEG)
-    # reliably and crashes with ssl.SSLError during chunked writes once the
-    # connection is held open for video_feed. This is a local-network tool,
-    # so plain HTTP is fine. If HTTPS is required later, put this behind a
-    # real reverse proxy (nginx/caddy) instead of Werkzeug's adhoc SSL.
-    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False)
+    app.run(host="0.0.0.0", port=config.get("web_port", 5000), debug=False, ssl_context="adhoc")
