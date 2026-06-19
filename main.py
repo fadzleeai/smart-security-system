@@ -28,9 +28,10 @@ def setup_logging(log_to_file: bool, log_file: str):
 # LOAD CONFIG
 # =========================================
 
-CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.json")
+CONFIG_PATH     = os.environ.get("CONFIG_PATH",     "config.json")
 KNOWN_FACES_DIR = os.environ.get("KNOWN_FACES_DIR", "known_faces")
-STRANGERS_DIR = os.environ.get("STRANGERS_DIR", "strangers")
+STRANGERS_DIR   = os.environ.get("STRANGERS_DIR",   "strangers")
+MODELS_DIR      = os.environ.get("MODELS_DIR",      "models")
 
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
@@ -54,21 +55,46 @@ def save_stranger(frame, risk: str, logger):
 # DRAW RESULTS ON FRAME
 # =========================================
 
-def draw_results(frame, results, scale: int = 4):
+def draw_results(frame, results, scale: int = 2):
+    """
+    Draw bounding boxes and labels for each result.
+    scale=2 because the engine now uses FRAME_SCALE=0.5 (was 0.25 before).
+    """
     for result in results:
         top, right, bottom, left = result["location"]
-        top *= scale
-        right *= scale
+        top    *= scale
+        right  *= scale
         bottom *= scale
-        left *= scale
+        left   *= scale
 
-        color = (0, 255, 0) if result["action"] == "AUTHORIZED" else (0, 0, 255)
-        label = f"{result['name']} | {result['risk']}"
+        action = result.get("action", "DENIED")
+        if action == "AUTHORIZED":
+            color = (0, 180, 0)
+        elif action == "DENIED":
+            color = (0, 0, 255)
+        else:
+            color = (0, 165, 255)   # orange for VERIFYING / WAIT_LIVENESS
+
+        name      = result["name"]
+        risk      = result.get("risk", "")
+        liveness  = result.get("liveness", "")
+        conf      = result.get("confidence", 0.0)
+
+        lines = [
+            f"{name} | {action}",
+            f"Risk: {risk} | Conf: {conf:.0%}",
+            f"Liveness: {liveness}",
+        ]
+
+        # background panel above the box
+        panel_top    = max(0, top - 60)
+        panel_right  = min(frame.shape[1] - 1, left + 380)
+        cv2.rectangle(frame, (left, panel_top), (panel_right, top), color, cv2.FILLED)
+        for i, line in enumerate(lines):
+            cv2.putText(frame, line, (left + 5, panel_top + 18 + i * 19),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.48, (255, 255, 255), 1)
 
         cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-        cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
-        cv2.putText(frame, label, (left + 6, bottom - 6),
-                    cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
 
     return frame
 
@@ -99,7 +125,7 @@ def stream():
 
 def start_stream_server(port: int = 8080):
     import logging as _logging
-    _logging.getLogger("werkzeug").setLevel(_logging.ERROR)  # silence Flask logs
+    _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
     stream_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # =========================================
@@ -125,30 +151,36 @@ def main():
     from src.door_sensor import DoorSensor
 
     motion_sensor = MotionSensor(pin=config["gpio_pin"])
-    speaker = Speaker(language=config["tts_language"], speed=config["tts_speed"])
-    door_sensor = DoorSensor(pin=config["door_sensor_pin"])
+    speaker       = Speaker(language=config["tts_language"], speed=config["tts_speed"])
+    door_sensor   = DoorSensor(pin=config["door_sensor_pin"])
+
     engine = FaceRecognitionEngine(
         known_faces_dir=KNOWN_FACES_DIR,
-        tolerance=config["tolerance"],
-        risk_medium_threshold=config["unknown_risk_medium_threshold"],
-        risk_high_threshold=config["unknown_risk_high_threshold"]
+        models_dir=MODELS_DIR,
+        tolerance=config.get("tolerance", 0.5),            # kept for compat
+        risk_medium_threshold=config.get("unknown_risk_medium_threshold", 3),
+        risk_high_threshold=config.get("unknown_risk_high_threshold",   5),
     )
 
-    # Ensure strangers folder exists
+    if not engine.model_loaded:
+        logger.warning(
+            "No trained model found in '%s'. "
+            "Run train_model.py to train one before faces can be recognised.",
+            MODELS_DIR,
+        )
+
     os.makedirs(STRANGERS_DIR, exist_ok=True)
 
-    video_capture = cv2.VideoCapture(config["camera_index"])
+    video_capture    = cv2.VideoCapture(config["camera_index"])
     camera_available = video_capture.isOpened()
     if not camera_available:
         logger.warning("No camera found. Running without camera — face recognition disabled.")
 
-    frame_skip = config["frame_skip"]
+    frame_skip  = config["frame_skip"]
     frame_count = 0
 
-    # Detect if a display is available (headless guard)
     has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
-    # Start stream server in background thread
     stream_port = config.get("stream_port", 8080)
     threading.Thread(target=start_stream_server, args=(stream_port,), daemon=True).start()
     logger.info(f"Stream server started on port {stream_port}")
@@ -170,10 +202,10 @@ def main():
             time.sleep(config["camera_warmup_seconds"])
 
             last_detection_time = time.time()
-            last_stranger_save = 0   # throttle saves to once per 10s per event
+            last_stranger_save  = 0
 
             # =====================================
-            # RECOGNITION LOOP (active after motion)
+            # RECOGNITION LOOP
             # =====================================
 
             if not camera_available:
@@ -191,7 +223,8 @@ def main():
                 if frame_count % frame_skip != 0:
                     continue
 
-                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                # engine uses FRAME_SCALE=0.5 internally; draw_results uses scale=2
+                small_frame     = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
                 rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
                 results = engine.process_frame(rgb_small_frame)
@@ -209,7 +242,6 @@ def main():
                         speaker.say(voice)
                         spoken_this_frame.add(voice)
 
-                    # Reset timer on every face detection
                     last_detection_time = time.time()
 
                     # =====================================
@@ -223,7 +255,7 @@ def main():
                         speaker=speaker,
                         save_stranger_fn=save_stranger if not authorized else None,
                         frame=frame,
-                        risk=result["risk"]
+                        risk=result["risk"],
                     )
 
                     # =====================================
@@ -232,24 +264,21 @@ def main():
 
                     if result["action"] == "DENIED":
                         now = time.time()
-                        # Throttle: save at most once every 10 seconds
                         if now - last_stranger_save > 10:
                             save_stranger(frame, result["risk"], logger)
                             last_stranger_save = now
 
                 # =====================================
-                # DRAW & DISPLAY
+                # DRAW & DISPLAY / STREAM
                 # =====================================
 
-                annotated = draw_results(frame, results)
+                annotated = draw_results(frame, results, scale=2)
 
-                # Push annotated frame to stream server
                 ret_enc, buffer = cv2.imencode('.jpg', annotated)
                 if ret_enc:
                     with frame_lock:
                         latest_frame_bytes = buffer.tobytes()
 
-                # Only show window if a display is available
                 if has_display:
                     cv2.imshow("Smart Security", annotated)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -286,4 +315,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()  
