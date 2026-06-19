@@ -42,7 +42,16 @@ STREAM_PORT = config.get("stream_port", 8080)
 STREAM_URL = f"http://localhost:{STREAM_PORT}/stream"
 
 def generate_frames():
-    """Proxy the MJPEG stream from main.py's stream server."""
+    """Proxy the MJPEG stream from main.py's stream server.
+
+    Uses a raw socket instead of urllib.request: urllib's `timeout`
+    applies to every individual socket read, not just connection setup.
+    Since /stream is a live MJPEG feed, there can be gaps between frames
+    (e.g. while motion isn't active main.py still pushes ~30fps, but any
+    hiccup can exceed a short urllib timeout and kill an otherwise-healthy
+    connection). Here we use a short connect timeout (fail fast if main.py
+    is down) and a separate, more generous read timeout.
+    """
     placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
     cv2.putText(placeholder, "Camera service offline", (130, 230),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
@@ -51,29 +60,52 @@ def generate_frames():
     _, placeholder_buf = cv2.imencode('.jpg', placeholder)
     placeholder_bytes = placeholder_buf.tobytes()
 
+    CONNECT_TIMEOUT = 2
+    READ_TIMEOUT = 10  # generous: tolerates brief stalls between frames
+
     while True:
+        sock = None
         try:
-            with urllib.request.urlopen(STREAM_URL, timeout=3) as stream:
-                logger.info("Connected to security stream.")
-                bytes_buf = b""
-                while True:
-                    chunk = stream.read(4096)
-                    if not chunk:
-                        break
-                    bytes_buf += chunk
-                    start = bytes_buf.find(b'\xff\xd8')  # JPEG start
-                    end = bytes_buf.find(b'\xff\xd9')    # JPEG end
-                    if start != -1 and end != -1:
-                        jpg = bytes_buf[start:end + 2]
-                        bytes_buf = bytes_buf[end + 2:]
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
+            sock = socket.create_connection(("localhost", STREAM_PORT), timeout=CONNECT_TIMEOUT)
+            sock.settimeout(READ_TIMEOUT)
+            request = f"GET /stream HTTP/1.1\r\nHost: localhost:{STREAM_PORT}\r\nConnection: close\r\n\r\n"
+            sock.sendall(request.encode())
+
+            logger.info("Connected to camera stream.")
+            bytes_buf = b""
+            headers_done = False
+
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                bytes_buf += chunk
+
+                if not headers_done:
+                    header_end = bytes_buf.find(b"\r\n\r\n")
+                    if header_end == -1:
+                        continue
+                    bytes_buf = bytes_buf[header_end + 4:]
+                    headers_done = True
+
+                start = bytes_buf.find(b'\xff\xd8')  # JPEG start
+                end = bytes_buf.find(b'\xff\xd9')    # JPEG end
+                if start != -1 and end != -1 and end > start:
+                    jpg = bytes_buf[start:end + 2]
+                    bytes_buf = bytes_buf[end + 2:]
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
         except Exception as e:
             logger.error(f"Stream proxy error: {e!r}")
-            # Security container not running — show placeholder
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + placeholder_bytes + b'\r\n')
             time.sleep(2)
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
 
 def camera_is_available() -> bool:
     """
