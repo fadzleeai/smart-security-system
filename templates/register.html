@@ -378,20 +378,27 @@
 
                 <!-- RPi camera section -->
                 <div class="source-section" id="section-rpi">
-                    <div class="rpi-capture">
-                        <div class="cam-status {{ 'online' if camera_available else 'offline' }}">
-                            {% if camera_available %}● CAMERA ONLINE{% else %}● CAMERA OFFLINE{% endif %}
+                    <div class="cam-status {{ 'online' if camera_available else 'offline' }}">
+                        {% if camera_available %}● CAMERA ONLINE{% else %}● CAMERA OFFLINE{% endif %}
+                    </div>
+                    {% if camera_available %}
+                        <div class="webcam-wrap">
+                            <img data-src="/video_feed" alt="RPi Live Feed" id="rpi-feed">
                         </div>
-                        <p>
-                            {% if camera_available %}
-                                Click register to instantly capture from the RPi camera.
-                                Make sure the person is in front of the camera.
-                            {% else %}
+                        <div class="rpi-capture">
+                            <p>
+                                Live preview from the RPi camera above.
+                                Click register to capture a frame the moment the person is in view.
+                            </p>
+                        </div>
+                    {% else %}
+                        <div class="rpi-capture">
+                            <p>
                                 RPi camera is not available on this device.
                                 Use your device camera instead.
-                            {% endif %}
-                        </p>
-                    </div>
+                            </p>
+                        </div>
+                    {% endif %}
                 </div>
 
                 <button type="button" class="btn" id="submit-btn" onclick="submitForm()">Register Face →</button>
@@ -472,6 +479,20 @@
             captured = false;
         }
 
+        function startRpiFeed() {
+            const img = document.getElementById('rpi-feed');
+            if (img && !img.src) {
+                img.src = img.dataset.src;
+            }
+        }
+
+        function stopRpiFeed() {
+            const img = document.getElementById('rpi-feed');
+            if (img) {
+                img.removeAttribute('src');
+            }
+        }
+
         function setSource(src, btn) {
             document.getElementById('source-input').value = src;
             document.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
@@ -481,8 +502,10 @@
 
             if (src === 'local') {
                 startCamera();
+                stopRpiFeed();
             } else {
                 stopCamera();
+                startRpiFeed();
             }
         }
 
