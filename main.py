@@ -26,6 +26,7 @@ class Camera:
         self.backend = None
         self._picam = None
         self._cv_cap = None
+        self.init_error = None
 
         if PICAMERA2_AVAILABLE:
             try:
@@ -37,7 +38,8 @@ class Camera:
                 self._picam.start()
                 time.sleep(1)  # let auto-exposure/white-balance settle
                 self.backend = "picamera2"
-            except Exception:
+            except Exception as exc:
+                self.init_error = exc
                 self._picam = None
 
         if self.backend is None:
@@ -189,7 +191,7 @@ def stream():
 def start_stream_server(port: int = 8080):
     import logging as _logging
     _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
-    stream_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    stream_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
 # =========================================
 # MAIN
@@ -240,6 +242,8 @@ def main():
         logger.warning("No camera found. Running without camera — face recognition disabled.")
     else:
         logger.info(f"Camera ready (backend: {video_capture.backend})")
+        if video_capture.backend == "cv2" and video_capture.init_error is not None:
+            logger.warning(f"picamera2 init failed, fell back to cv2: {video_capture.init_error}")
 
     frame_skip  = config["frame_skip"]
     frame_count = 0
