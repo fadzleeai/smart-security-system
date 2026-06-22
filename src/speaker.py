@@ -7,19 +7,20 @@ logger = logging.getLogger(__name__)
 
 class Speaker:
 
+    AUDIO_DEVICE = "plughw:2,0"  # bcm2835 Headphones (3.5mm jack)
+
     def __init__(self, language: str = "en", speed: int = 150):
         self.language = language
         self.speed = speed
         self.mode = None
 
-        # Check for espeak-ng with aplay pipeline (matches test_pir_speaker.py)
         espeak_cmd = "where" if os.name == "nt" else "which"
         espeak_found = subprocess.run([espeak_cmd, "espeak-ng"], capture_output=True).returncode == 0
         aplay_found = subprocess.run([espeak_cmd, "aplay"], capture_output=True).returncode == 0
 
         if espeak_found and aplay_found:
             self.mode = "espeak-ng"
-            logger.info("Speaker initialized with espeak-ng + aplay pipeline.")
+            logger.info(f"Speaker initialized with espeak-ng + aplay pipeline (device: {self.AUDIO_DEVICE}).")
         else:
             self.mode = "mock"
             logger.warning("espeak-ng or aplay not found. Speaker running in MOCK mode (print only).")
@@ -29,13 +30,13 @@ class Speaker:
 
         if self.mode == "espeak-ng":
             try:
-                # Same pipeline as test_pir_speaker.py
                 espeak = subprocess.Popen(
                     ["espeak-ng", "-a", "200", "-v", self.language, "-s", str(self.speed), text, "--stdout"],
-                    stdout=subprocess.PIPE
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL  # added to suppress espeak-ng terminal noise
                 )
                 subprocess.run(
-                    ["aplay"],
+                    ["aplay", "-D", self.AUDIO_DEVICE],  # pinned to 3.5mm jack
                     stdin=espeak.stdout,
                     stderr=subprocess.DEVNULL,
                     check=True
@@ -45,9 +46,7 @@ class Speaker:
                 logger.error(f"espeak-ng say failed: {e}")
 
         else:
-            # Mock mode — just print
             print(f"[SPEAKER] {text}")
 
     def cleanup(self):
-        # No persistent engine to clean up
         pass
