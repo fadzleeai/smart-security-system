@@ -205,6 +205,42 @@ def motion_listener(motion_sensor, motion_event):
         time.sleep(2) # Prevent rapid re-triggering
 
 # =========================================
+# ENTRY LOCKOUT (pause system after authorization)
+# =========================================
+DOOR_OPEN_TIMEOUT = 30  # seconds to wait for door to open before giving up
+
+def entry_lockout_handler(door_sensor, speaker, logger, lockout_event):
+    """
+    Runs in a background thread after a face is authorized.
+    Blocks motion detection + face recognition until:
+      1. Door opens  (person walks in)
+      2. Door closes (door is shut behind them)
+    Falls back after DOOR_OPEN_TIMEOUT seconds if door never opens.
+    """
+    logger.info("[LOCKOUT] Entry authorized. Waiting for door to open (timeout: %ds)...", DOOR_OPEN_TIMEOUT)
+
+    # Phase 1 — wait for door to open (with timeout)
+    deadline = time.time() + DOOR_OPEN_TIMEOUT
+    while not door_sensor.is_open():
+        if time.time() > deadline:
+            logger.warning("[LOCKOUT] Door never opened within timeout. Resuming system.")
+            speaker.say("No entry detected. System re-armed.")
+            lockout_event.clear()
+            return
+        time.sleep(0.1)
+
+    logger.info("[LOCKOUT] Door opened. Waiting for door to close...")
+    speaker.say("Welcome. Please close the door behind you.")
+
+    # Phase 2 — wait for door to close
+    while door_sensor.is_open():
+        time.sleep(0.1)
+
+    logger.info("[LOCKOUT] Door closed. Security system resuming.")
+    speaker.say("Door secured. System re-armed.")
+    lockout_event.clear()
+
+# =========================================
 # MAIN
 # =========================================
 def main():
@@ -288,6 +324,7 @@ def main():
     last_stranger_save = 0
     current_results = []
     spoken_this_frame = set()
+    entry_lockout = threading.Event()  # set = system paused waiting for door open+close
 
     try:
         while True:
@@ -304,17 +341,21 @@ def main():
 
             # 2. CHECK IF MOTION WAS DETECTED
             if motion_event.is_set():
-                logger.info("Motion detected — waking up Face Recognition Engine...")
-                speaker.say("Motion detected. Scanning.")
-                scanning_active = True
-                last_detection_time = time.time()
-                spoken_this_frame.clear()
-                motion_event.clear()
+                if entry_lockout.is_set():
+                    # System is paused for entry — swallow the motion event silently
+                    motion_event.clear()
+                else:
+                    logger.info("Motion detected — waking up Face Recognition Engine...")
+                    speaker.say("Motion detected. Scanning.")
+                    scanning_active = True
+                    last_detection_time = time.time()
+                    spoken_this_frame.clear()
+                    motion_event.clear()
 
-            # 3. RUN FACE RECOGNITION (Only if scanning is active)
+            # 3. RUN FACE RECOGNITION (Only if scanning is active and not in entry lockout)
             frame_to_display = frame.copy()
 
-            if scanning_active:
+            if scanning_active and not entry_lockout.is_set():
                 frame_count += 1
                 
                 # Only process heavy AI on skipped frames to keep video smooth
@@ -340,6 +381,19 @@ def main():
                             frame=frame,
                             risk=result["risk"],
                         )
+
+                        # Authorized entry — pause system until door opens and closes
+                        if authorized and not entry_lockout.is_set():
+                            logger.info("[LOCKOUT] %s authorized. Pausing system for entry.", result["name"])
+                            entry_lockout.set()
+                            scanning_active = False
+                            current_results = []
+                            threading.Thread(
+                                target=entry_lockout_handler,
+                                args=(door_sensor, speaker, logger, entry_lockout),
+                                daemon=True,
+                            ).start()
+                            break  # stop processing other faces this frame
 
                         if result["action"] == "DENIED":
                             now = time.time()
