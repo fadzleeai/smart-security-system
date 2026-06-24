@@ -33,7 +33,7 @@ STRANGERS_DIR = os.environ.get(
 )
 CSV_LOG_PATH  = os.environ.get(
     "CSV_LOG_PATH",
-    os.path.join(PROJECT_DIR, "security_logs.csv")
+    os.path.join(PROJECT_DIR, "/home/admin/smart-security-system/security_logs.csv")
 )
 
 def load_config() -> dict:
