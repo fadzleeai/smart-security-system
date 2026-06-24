@@ -15,26 +15,18 @@ ARCHITECTURE
 
 SETUP REQUIRED
     1. Set PI_API_URL below to your tunnel URL, e.g.
-       "https://pi-security.yourdomain.com"
-       (or the trycloudflare.com URL if using the quick-tunnel method)
+       "https://utmiotsecurityg4.dpdns.org"
 
     2. On Streamlit Community Cloud, add this to your app's Secrets
        (Settings → Secrets) instead of hardcoding it, so you don't have
        to redeploy every time the URL changes:
 
-           PI_API_URL = "https://pi-security.yourdomain.com"
+           PI_API_URL = "https://utmiotsecurityg4.dpdns.org"
 
-       Then this file reads st.secrets["PI_API_URL"] automatically if
-       present, falling back to the hardcoded value below for local testing.
+        Then this file reads st.secrets["PI_API_URL"] automatically if
+        present, falling back to the hardcoded value below for local testing.
 
     3. requirements.txt needs one new line:  requests>=2.31.0
-
-NETWORK FAILURE HANDLING
-    Every function here can fail if the Pi is offline, the tunnel is down,
-    or the request times out. Each function catches that and falls back to
-    a safe empty/zero state — so your dashboard never crashes, it just
-    shows "no data" until the Pi is reachable again. A small warning is
-    cached so page1 can show a "Pi offline" banner if you want one later.
 """
 
 import io
@@ -49,7 +41,7 @@ from datetime import datetime
 try:
     PI_API_URL = st.secrets["PI_API_URL"]
 except Exception:
-    PI_API_URL = "https://pi-security.yourdomain.com"   # ← change for local testing
+    PI_API_URL = "https://utmiotsecurityg4.dpdns.org"  
 
 REQUEST_TIMEOUT = 5  # seconds — fail fast rather than freezing the dashboard
 
@@ -134,37 +126,26 @@ def get_system_state() -> dict:
     return {
         "motion_detected":  state.get("motion_detected", False),
         "camera_status":    state.get("camera_status", "Standby"),
-        "last_visitor":     state.get("last_visitor", "—"),
-        "auth_result":      state.get("auth_result", "—"),
-        "threat_level":     state.get("threat_level", "None"),
+        "last_visitor":      state.get("last_visitor", "—"),
+        "auth_result":       state.get("auth_result", "—"),
+        "threat_level":      state.get("threat_level", "None"),
         "suspicious_count": state.get("suspicious_count", 0),
-        "door_status":      state.get("door_status", "Closed"),
-        "door_alert":       state.get("door_alert", False),
-        "pir_ok":           state.get("pir_ok", True),
-        "camera_ok":        state.get("camera_ok", True),
-        "door_sensor_ok":   state.get("door_sensor_ok", True),
-        "speaker_ok":       state.get("speaker_ok", True),
+        "door_status":       state.get("door_status", "Closed"),
+        "door_alert":        state.get("door_alert", False),
+        "pir_ok":            state.get("pir_ok", True),
+        "camera_ok":         state.get("camera_ok", True),
+        "door_sensor_ok":    state.get("door_sensor_ok", True),
+        "speaker_ok":        state.get("speaker_ok", True),
         "last_visitor_img": last_img_url,
-        "last_event_time":  state.get("last_event_time", "—"),
-        "access_count":     state.get("access_count", 0),
+        "last_event_time":   state.get("last_event_time", "—"),
+        "access_count":      state.get("access_count", 0),
     }
 
 
 def stop_alarm() -> dict:
     """
     Calls the Pi's /alarm/stop endpoint when the dashboard's "Stop alarm"
-    button is clicked. This is the real replacement for the MQTT comment
-    in the original mock code — instead of an MQTT publish, it's a small
-    HTTP POST through the same Cloudflare Tunnel used for everything else.
-
-    Returns {"success": True/False, "message": str} so page1_realtime.py
-    can show the right feedback to the user.
-
-    NOTE: this only tells the Pi "a dismiss was requested." Your detection
-    backend still needs to actually check for that flag and silence the
-    buzzer — see check_alarm_dismiss_example() in pi_server.py. Without
-    that backend piece, the button will report success here, but the
-    physical buzzer (if any) won't stop until the backend checks the flag.
+    button is clicked.
     """
     try:
         resp = requests.post(f"{PI_API_URL}/alarm/stop", timeout=REQUEST_TIMEOUT)
@@ -178,8 +159,7 @@ def stop_alarm() -> dict:
 def get_alarm_status() -> dict:
     """
     Optional: lets page1_realtime.py check whether a dismiss is already
-    in effect (e.g. after a page refresh), so the button/banner state
-    doesn't just reset to "alert active" every time someone reloads.
+    in effect (e.g. after a page refresh).
     """
     resp = _safe_get("/alarm/status")
     if resp is None:
@@ -192,10 +172,7 @@ def get_alarm_status() -> dict:
 
 def get_ram_usage() -> dict:
     """
-    Same shape as before. Pulled from the "ram" key inside state.json
-    (your Pi backend writes this — see write_state_example() in pi_server.py).
-    Falls back to zeros if the Pi hasn't reported yet, rather than fake
-    numbers, so you can tell at a glance if this is real or not-yet-connected.
+    Pulled from the "ram" key inside state.json.
     """
     state = _fetch_state()
     ram = state.get("ram", {})
@@ -252,9 +229,7 @@ def get_activity_timeline() -> list[dict]:
 
 def get_stranger_gallery() -> list[dict]:
     """
-    Same shape as before. Lists denied/unknown visitors from the CSV and
-    matches each to a real image URL served by the Pi via /images-list
-    and /images/<filename>.
+    Lists denied/unknown visitors from the CSV and matches each to a real image URL.
     """
     resp = _safe_get("/images-list")
     image_files = resp.json().get("images", []) if resp else []
@@ -288,9 +263,7 @@ def get_stranger_gallery() -> list[dict]:
 
 def get_full_logs() -> pd.DataFrame:
     """
-    Same shape/column names as the original mock version, so page3_logs.py
-    needs ZERO changes. Renames the raw CSV columns to match the display
-    names page3 expects ("Auth result", "Threat", etc).
+    Same shape/column names as the original mock version, so page3_logs.py needs ZERO changes.
     """
     df = _fetch_logs_df()
     if df.empty:
