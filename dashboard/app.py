@@ -19,8 +19,10 @@ st.set_page_config(
 # ── Global CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Main content padding */
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+    /* Main content padding — top increased from 1rem to clear Streamlit
+       Cloud's platform bar (Share/Star/Edit/GitHub/⋮), which sits in a
+       fixed strip above the app and isn't controlled by this app's code. */
+    .block-container { padding-top: 3.5rem; padding-bottom: 1rem; }
     [data-testid="stMetricLabel"] { font-size: 0.78rem; }
 
     /* Sidebar width */
