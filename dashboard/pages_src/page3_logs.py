@@ -4,6 +4,8 @@ Page 3 — Historical audit logs
 """
 
 import io
+from datetime import datetime
+
 import streamlit as st
 import pandas as pd
 from data_source import get_full_logs
@@ -28,21 +30,52 @@ def _colour_threat(val: str) -> str:
 
 
 def _style_df(df: pd.DataFrame):
-    return (
-        df.style
-        .applymap(_colour_result,  subset=["Auth result"])
-        .applymap(_colour_threat,  subset=["Threat"])
-        .set_table_styles([
-            {"selector": "th",
-             "props": [("font-size","0.78rem"),
-                       ("color","#6b7280"),
-                       ("font-weight","500"),
-                       ("border-bottom","1px solid #e5e7eb")]},
-            {"selector": "td",
-             "props": [("font-size","0.8rem"),
-                       ("padding","6px 10px")]},
-        ])
-    )
+    """
+    Applies per-cell colour styling to the logs table.
+
+    NOTE: pandas deprecated Styler.applymap() in 2.1 and removed it in
+    later releases — .map() is the replacement for elementwise styling.
+    We try .map() first (current pandas on Streamlit Cloud) and fall back
+    to .applymap() for anyone still on an older pandas locally, so this
+    keeps working either way without crashing.
+    """
+    styler = df.style
+    try:
+        styler = (
+            styler
+            .map(_colour_result, subset=["Auth result"])
+            .map(_colour_threat, subset=["Threat"])
+        )
+    except AttributeError:
+        styler = (
+            styler
+            .applymap(_colour_result, subset=["Auth result"])
+            .applymap(_colour_threat, subset=["Threat"])
+        )
+
+    return styler.set_table_styles([
+        {"selector": "th",
+         "props": [("font-size", "0.78rem"),
+                   ("color", "#6b7280"),
+                   ("font-weight", "500"),
+                   ("border-bottom", "1px solid #e5e7eb")]},
+        {"selector": "td",
+         "props": [("font-size", "0.8rem"),
+                   ("padding", "6px 10px")]},
+    ])
+
+
+def _parse_log_date(timestamp_str: str):
+    """
+    Timestamp column from get_full_logs() is formatted as
+    '%Y-%m-%d %I:%M:%S %p' (e.g. '2026-06-24 01:31:15 PM').
+    Pull just the date portion back out for filtering.
+    Returns None if the string can't be parsed (e.g. '—' placeholder rows).
+    """
+    try:
+        return datetime.strptime(str(timestamp_str)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
 
 
 # ── Flow diagram ──────────────────────────────────────────────────────────────
@@ -76,11 +109,8 @@ def _render_flow():
 # ── Main render ───────────────────────────────────────────────────────────────
 
 def render():
-    # ── REAL DATA SWAP ──────────────────────────────────────────────────────
-    # get_full_logs() returns a DataFrame. When you have real data, update
-    # that function in data_source.py to read security_logs.csv. No changes
-    # needed in this file.
-    # ────────────────────────────────────────────────────────────────────────
+    # get_full_logs() pulls real rows from the Pi via /logs over the
+    # Cloudflare tunnel (see data_source.py). No mock data here.
     df = get_full_logs()
 
     # ── Filters ───────────────────────────────────────────────────────────────
@@ -101,12 +131,12 @@ def render():
             label_visibility="collapsed",
         )
     with fc3:
-        # ── REAL DATA SWAP ──────────────────────────────────────────────────
-        # Add a date picker here once you have real timestamps:
-        #   date_filter = st.date_input("Date", value=datetime.today().date())
-        #   df = df[df["timestamp"].dt.date == date_filter]
-        st.markdown('<span class="muted">Date filter: add when using real CSV</span>',
-                    unsafe_allow_html=True)
+        # Real date filter — wired to the actual Timestamp column returned
+        # by get_full_logs(). "All dates" skips filtering entirely.
+        use_date_filter = st.checkbox("Filter by date", value=False)
+        date_filter = None
+        if use_date_filter:
+            date_filter = st.date_input("Date", value=datetime.today().date())
 
     # Apply filters
     filtered = df.copy()
@@ -114,13 +144,19 @@ def render():
         filtered = filtered[filtered["Auth result"] == type_filter]
     if threat_filter != "All threats":
         filtered = filtered[filtered["Threat"] == threat_filter]
+    if date_filter is not None and not filtered.empty:
+        row_dates = filtered["Timestamp"].apply(_parse_log_date)
+        filtered = filtered[row_dates == date_filter]
 
     # ── Table ─────────────────────────────────────────────────────────────────
-    st.dataframe(
-        _style_df(filtered),
-        use_container_width=True,
-        hide_index=True,
-    )
+    if filtered.empty:
+        st.info("No log rows match the current filters.")
+    else:
+        st.dataframe(
+            _style_df(filtered),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.caption(f"Showing {len(filtered)} of {len(df)} records")
 
@@ -139,8 +175,9 @@ def render():
     st.markdown("##### Data flow — how logs are written")
     _render_flow()
     st.caption(
-        "Logs are read from `security_logs.csv` on the Pi. "
-        "Search and filter run client-side in Streamlit — no extra API calls needed."
+        "Logs are read live from `security_logs.csv` on the Pi via the "
+        "Cloudflare tunnel. Search and filter run client-side in Streamlit "
+        "— no extra API calls needed."
     )
 
     # ── Quick stats from logs ─────────────────────────────────────────────────
@@ -150,16 +187,16 @@ def render():
         s1, s2, s3 = st.columns(3)
 
         auth_rate = (df["Auth result"] == "Authorized").mean() * 100
-        s1.metric("Auth success rate",  f"{auth_rate:.0f}%")
+        s1.metric("Auth success rate", f"{auth_rate:.0f}%")
 
-        # ── REAL DATA SWAP ──────────────────────────────────────────────────
-        # avg_confidence needs a "Confidence" column in your CSV.
-        # Your Pi backend should write the face_recognition confidence score
-        # (0.0 to 1.0) for every event.
-        # ────────────────────────────────────────────────────────────────────
+        # avg_confidence reads the real "Confidence" column written by
+        # your Pi's face_recognition pipeline (main.py write_log_row()).
         if "Confidence" in df.columns:
-            avg_conf = df[df["Auth result"] == "Authorized"]["Confidence"].mean()
-            s2.metric("Avg auth confidence", f"{avg_conf:.2f}")
+            auth_conf = df[df["Auth result"] == "Authorized"]["Confidence"]
+            if not auth_conf.dropna().empty:
+                s2.metric("Avg auth confidence", f"{auth_conf.mean():.2f}")
+            else:
+                s2.metric("Avg auth confidence", "—")
 
         suspicious_n = (df["Threat"] == "Suspicious").sum()
-        s3.metric("Suspicious events",  int(suspicious_n))
+        s3.metric("Suspicious events", int(suspicious_n))
