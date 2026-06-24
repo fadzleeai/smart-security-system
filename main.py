@@ -107,7 +107,7 @@ CONFIG_PATH     = os.environ.get("CONFIG_PATH",     "config.json")
 KNOWN_FACES_DIR = os.environ.get("KNOWN_FACES_DIR", "known_faces")
 STRANGERS_DIR   = os.environ.get("STRANGERS_DIR",   "strangers")
 MODELS_DIR      = os.environ.get("MODELS_DIR",      "models")
-CSV_LOG_PATH    = os.environ.get("CSV_LOG_PATH",    "security_logs.csv")
+CSV_LOG_PATH    = os.environ.get("CSV_LOG_PATH",    "/home/admin/smart-security-system/security_logs.csv")
 
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
