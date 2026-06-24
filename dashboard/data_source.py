@@ -198,10 +198,26 @@ def stop_alarm() -> dict:
         resp.raise_for_status()
         return {"success": True, "message": "Stop command sent to Pi."}
     except requests.exceptions.RequestException:
+
         return {
             "success": False,
             "message": "Could not reach Pi — check tunnel and webapp are running.",
         }
+
+
+def get_alarm_status() -> dict:
+    """
+    Checks whether the alarm is currently dismissed.
+    GETs Pi /alarm/status endpoint.
+    Falls back to "not dismissed" if Pi is unreachable.
+    """
+    resp = _safe_get("/alarm/status")
+    if resp is None:
+        return {"dismissed": False, "dismissed_at": None}
+    try:
+        return resp.json()
+    except Exception:
+        return {"dismissed": False, "dismissed_at": None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

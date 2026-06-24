@@ -21,3 +21,8 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+# Security logs (runtime data — don't commit)
+security_logs.csv
+
+# Trained models (large binaries — don't commit)
+models/
