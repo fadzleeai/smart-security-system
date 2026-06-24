@@ -33,15 +33,38 @@ def _threat_badge(level: str) -> str:
 def _sensor_badge(ok: bool) -> str:
     return _badge("Working", "green") if ok else _badge("⚠ Fault", "red")
 
+def _door_status_badge(door_sensor_ok: bool, is_open: bool) -> str:
+    """
+    Requirement 1 — strictly hardware-driven, three distinct states:
+      sensor offline/unreachable -> "Offline"  (gray, regardless of door_status)
+      sensor online + door open  -> "OPEN"     (amber/warning)
+      sensor online + door closed -> "CLOSED"  (green/success)
+    Offline takes priority: an unreliable sensor reading OPEN/CLOSED is not
+    trustworthy, so we say so rather than show a possibly-false state.
+    """
+    if not door_sensor_ok:
+        return _badge("⚠ Offline", "gray")
+    return _badge("OPEN", "amber") if is_open else _badge("✓ CLOSED", "green")
+
 
 # ── Door illustration ─────────────────────────────────────────────────────────
 # Uses st.components.v1.html() which renders full HTML without Streamlit's
 # sanitizer stripping nested tags. Do NOT use st.markdown() for nested divs.
 
-def _render_door(is_open: bool):
+def _render_door(is_open: bool, offline: bool = False):
     import streamlit.components.v1 as components
 
-    if is_open:
+    if offline:
+        # Sensor unreachable — gray/dashed door, "?" rather than claiming a
+        # state we can't actually verify from hardware right now.
+        panel_style = ("position:absolute;top:4px;left:4px;right:4px;bottom:0;"
+                       "background:#f3f4f6;border-radius:2px 2px 0 0;"
+                       "border:1px dashed #9ca3af;")
+        knob_style  = ("position:absolute;right:7px;top:50%;width:6px;height:6px;"
+                       "background:#d1d5db;border-radius:50%;transform:translateY(-50%);")
+        label_style = "color:#6b7280;font-size:12px;font-weight:700;margin-top:6px;"
+        label_text  = "&#9888; OFFLINE"
+    elif is_open:
         panel_style = ("position:absolute;top:4px;left:4px;bottom:0;width:14px;"
                        "background:#e5e7eb;border-radius:2px 0 0 0;"
                        "border:1px solid #d1d5db;"
@@ -167,24 +190,19 @@ def render():
     with col_door:
         st.markdown("##### Door status")
 
-        # ── REAL DATA SWAP ──────────────────────────────────────────────────
-        # When real door sensor is wired, delete the session_state block and
-        # the simulate button below. Replace door_is_open with:
-        #   door_is_open = (state["door_status"] == "Open")
-        # state["door_status"] comes from MQTT payload sent by Student 5.
-        # ────────────────────────────────────────────────────────────────────
-        if "door_open" not in st.session_state:
-            st.session_state["door_open"] = (state["door_status"] == "Open")
+        # Requirement 1 — strictly read-only, hardware-driven. No simulation
+        # toggles, no session_state mock. door_sensor_ok gates everything:
+        # if the sensor itself is unreachable, we show "Offline" rather than
+        # trust a door_status value that might be stale or wrong.
+        door_sensor_ok = state["door_sensor_ok"]
+        door_is_open   = (state["door_status"] == "Open")
 
-        door_is_open = st.session_state["door_open"]
-
-        # Door illustration — uses components.html to avoid Streamlit stripping nested divs
-        _render_door(door_is_open)
+        _render_door(door_is_open, offline=not door_sensor_ok)
 
         # Door detail rows
         c1, c2 = st.columns(2)
         c1.markdown('<span class="muted">Magnetic sensor</span>', unsafe_allow_html=True)
-        c2.markdown(_sensor_badge(state["door_sensor_ok"]), unsafe_allow_html=True)
+        c2.markdown(_door_status_badge(door_sensor_ok, door_is_open), unsafe_allow_html=True)
 
         c1, c2 = st.columns(2)
         c1.markdown('<span class="muted">Last event</span>', unsafe_allow_html=True)
@@ -193,16 +211,13 @@ def render():
 
         st.markdown("")
 
-        # MOCK simulate button — DELETE this button when real sensor is ready
-        btn_label = "🔓 Simulate open" if not door_is_open else "🔒 Simulate close"
-        if st.button(btn_label, key="door_toggle", use_container_width=True):
-            st.session_state["door_open"] = not door_is_open
-            st.rerun()
-
-        if door_is_open:
-            st.warning("⚠ Unexpected door open — alert sent to Favoriot", icon="🚪")
+        if not door_sensor_ok:
+            st.warning("⚠ Door sensor unreachable — status unknown until it reconnects", icon="📡")
+        elif door_is_open:
+            st.warning("⚠ Door is open", icon="🚪")
 
     # ── Row 2: Latest visitor capture + Sensor health & RAM ──────────────────
+
     st.markdown("")
     col_img, col_health = st.columns([2, 3], gap="medium")
 
