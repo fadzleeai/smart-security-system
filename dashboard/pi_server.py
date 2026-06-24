@@ -51,8 +51,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # ── CONFIG — adjust these paths to match where your backend actually writes ──
 BASE_DIR          = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH          = "/home/admin/smart-security-system/security_logs.csv"
-IMAGES_DIR        = os.path.join(BASE_DIR, "images")
+PROJECT_DIR       = os.path.abspath(os.path.join(BASE_DIR, ".."))
+CSV_PATH          = os.path.join(PROJECT_DIR, "security_logs.csv")
+IMAGES_DIR        = os.path.join(PROJECT_DIR, "strangers")
 STATE_PATH        = os.path.join(BASE_DIR, "state.json")
 ALARM_FLAG_PATH   = os.path.join(BASE_DIR, "alarm_dismiss.json")
 
