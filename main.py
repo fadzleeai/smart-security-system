@@ -107,23 +107,54 @@ CONFIG_PATH     = os.environ.get("CONFIG_PATH",     "config.json")
 KNOWN_FACES_DIR = os.environ.get("KNOWN_FACES_DIR", "known_faces")
 STRANGERS_DIR   = os.environ.get("STRANGERS_DIR",   "strangers")
 MODELS_DIR      = os.environ.get("MODELS_DIR",      "models")
+CSV_LOG_PATH    = os.environ.get("CSV_LOG_PATH",    "security_logs.csv")
 
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
 
 # =========================================
+# CSV EVENT LOG  (read by the cloud dashboard via pi_server.py)
+# =========================================
+CSV_HEADER = "timestamp,event_type,visitor_name,auth_result,threat_level,door_status,confidence,img_file\n"
+
+def write_log_row(logger, event_type, visitor_name="", auth_result="",
+                   threat_level="", door_status="", confidence="", img_file=""):
+    """
+    Appends one row to security_logs.csv. Used for two kinds of rows:
+      event_type="visitor" — a face was recognized (Authorized or Denied)
+      event_type="door"    — the door itself opened/closed, independent of
+                              whether any face was ever recognized
+    Writing the header once if the file doesn't exist yet, then appending,
+    keeps this safe to call repeatedly without ever overwriting history.
+    """
+    try:
+        file_exists = os.path.isfile(CSV_LOG_PATH)
+        with open(CSV_LOG_PATH, "a") as f:
+            if not file_exists:
+                f.write(CSV_HEADER)
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            row = f"{timestamp},{event_type},{visitor_name},{auth_result}," \
+                  f"{threat_level},{door_status},{confidence},{img_file}\n"
+            f.write(row)
+    except Exception as e:
+        logger.error(f"Failed to write CSV log row: {e}")
+
+# =========================================
 # SAVE STRANGER IMAGE
 # =========================================
 def save_stranger(frame, risk: str, logger):
+    """Returns the saved filename (no folder prefix) on success, else None."""
     try:
         os.makedirs(STRANGERS_DIR, exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = f"{STRANGERS_DIR}/stranger_{timestamp}_{risk}.jpg"
-        cv2.imwrite(filename, frame)
+        filename = f"stranger_{timestamp}_{risk}.jpg"
+        cv2.imwrite(os.path.join(STRANGERS_DIR, filename), frame)
         logger.info(f"Stranger image saved: {filename}")
+        return filename
     except Exception as e:
         logger.error(f"Failed to save stranger image: {e}")
+        return None
 
 # =========================================
 # DRAW RESULTS ON FRAME
@@ -241,6 +272,67 @@ def entry_lockout_handler(door_sensor, speaker, logger, lockout_event):
     lockout_event.clear()
 
 # =========================================
+# UNATTENDED DOOR WATCHER
+# (independent of face recognition — catches "door open, nobody recognized")
+# =========================================
+UNATTENDED_DOOR_THRESHOLD = 30  # seconds door can be open with no authorized entry before alarming
+UNATTENDED_DOOR_REPEAT    = 30  # seconds between repeated alarms while still unattended-open
+
+def unattended_door_watcher(door_sensor, speaker, logger, lockout_event):
+    """
+    Runs continuously in its own background thread, completely independent
+    of whether any face has ever been recognized. This is what catches the
+    case a face-triggered alarm cannot: the door is open, but nobody was
+    ever recognized in front of it (forced open, not latched shut, etc).
+
+    While lockout_event is set (an authorized entry is in progress — see
+    entry_lockout_handler), this watcher stays silent no matter how long
+    the door is open, since that's an expected, already-explained state.
+
+    Logs every door open/close transition to the CSV (event_type="door"),
+    and additionally calls the speaker every UNATTENDED_DOOR_REPEAT seconds
+    for as long as the door remains open past UNATTENDED_DOOR_THRESHOLD
+    without an authorized entry in progress.
+    """
+    was_open          = False
+    open_since         = None
+    next_alarm_at      = None
+
+    while True:
+        is_open = door_sensor.is_open()
+
+        if is_open and not was_open:
+            # Door just transitioned closed -> open
+            open_since    = time.time()
+            next_alarm_at = open_since + UNATTENDED_DOOR_THRESHOLD
+            write_log_row(logger, event_type="door", door_status="Open")
+            logger.info("[DOOR-WATCH] Door opened.")
+
+        elif not is_open and was_open:
+            # Door just transitioned open -> closed
+            write_log_row(logger, event_type="door", door_status="Closed")
+            logger.info("[DOOR-WATCH] Door closed.")
+            open_since    = None
+            next_alarm_at = None
+
+        elif is_open and not lockout_event.is_set():
+            # Door has been continuously open; check if it's unattended too long
+            if next_alarm_at is not None and time.time() >= next_alarm_at:
+                logger.warning(
+                    "[DOOR-WATCH] Door open %ds with no authorized entry — ALARM",
+                    int(time.time() - open_since),
+                )
+                speaker.say("Warning. Door has been left open. Please check the entrance.")
+                write_log_row(
+                    logger, event_type="door",
+                    threat_level="Suspicious", door_status="Open",
+                )
+                next_alarm_at = time.time() + UNATTENDED_DOOR_REPEAT
+
+        was_open = is_open
+        time.sleep(0.5)
+
+# =========================================
 # MAIN
 # =========================================
 def main():
@@ -326,6 +418,14 @@ def main():
     spoken_this_frame = set()
     entry_lockout = threading.Event()  # set = system paused waiting for door open+close
 
+    # Start the independent door watcher (catches "open, nobody recognized")
+    threading.Thread(
+        target=unattended_door_watcher,
+        args=(door_sensor, speaker, logger, entry_lockout),
+        daemon=True,
+    ).start()
+    logger.info("Unattended door watcher started (threshold: %ds).", UNATTENDED_DOOR_THRESHOLD)
+
     try:
         while True:
             if not camera_available:
@@ -372,7 +472,20 @@ def main():
 
                         last_detection_time = time.time()
                         authorized = result["action"] == "AUTHORIZED"
-                        
+
+                        # Log this detection event to the CSV the dashboard reads.
+                        # .get() used for keys not confirmed to always exist, so a
+                        # missing field never crashes the live detection loop.
+                        write_log_row(
+                            logger,
+                            event_type="visitor",
+                            visitor_name=result["name"],
+                            auth_result=result["action"],
+                            threat_level=result.get("risk", ""),
+                            door_status="Open" if door_sensor.is_open() else "Closed",
+                            confidence=result.get("confidence", ""),
+                        )
+
                         door_sensor.handle_door_event(
                             authorized=authorized,
                             name=result["name"],
@@ -398,8 +511,19 @@ def main():
                         if result["action"] == "DENIED":
                             now = time.time()
                             if now - last_stranger_save > 10:
-                                save_stranger(frame, result["risk"], logger)
+                                saved_filename = save_stranger(frame, result["risk"], logger)
                                 last_stranger_save = now
+                                if saved_filename:
+                                    write_log_row(
+                                        logger,
+                                        event_type="visitor",
+                                        visitor_name=result["name"],
+                                        auth_result=result["action"],
+                                        threat_level=result.get("risk", ""),
+                                        door_status="Open" if door_sensor.is_open() else "Closed",
+                                        confidence=result.get("confidence", ""),
+                                        img_file=saved_filename,
+                                    )
 
                 # Draw the bounding boxes on the live feed
                 frame_to_display = draw_results(frame_to_display, current_results, scale=2)
