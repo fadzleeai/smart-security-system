@@ -2,48 +2,47 @@
 data_source.py — REAL DATA VERSION (Pi over Cloudflare Tunnel)
 
 ARCHITECTURE
-    This file runs on STREAMLIT COMMUNITY CLOUD (the public dashboard).
-    It does NOT read local files — there are no local files on the cloud
-    server. Instead it makes small HTTP requests to your Raspberry Pi's
-    pi_server.py, reached through the Cloudflare Tunnel public URL.
+    Runs on your LAPTOP (Streamlit dashboard).
+    Fetches data from Raspberry Pi via Cloudflare Tunnel public URL.
 
-    Pi (security_logs.csv, images/, state.json)
-        → pi_server.py (FastAPI, runs on Pi)
-        → Cloudflare Tunnel (public HTTPS URL)
-        → THIS FILE fetches over HTTP
-        → page1/2/3 render() functions (UNCHANGED — same shapes as before)
+    Pi (security_logs.csv, strangers/, state)
+        → src/webapp.py (Flask, port 5000)
+        → Cloudflare Tunnel
+        → THIS FILE fetches over HTTPS
+        → page1/2/3 render() functions (unchanged)
 
-SETUP REQUIRED
-    1. Set PI_API_URL below to your tunnel URL, e.g.
-       "https://utmiotsecurityg4.dpdns.org"
-
-    2. On Streamlit Community Cloud, add this to your app's Secrets
-       (Settings → Secrets) instead of hardcoding it, so you don't have
-       to redeploy every time the URL changes:
-
-           PI_API_URL = "https://utmiotsecurityg4.dpdns.org"
-
-        Then this file reads st.secrets["PI_API_URL"] automatically if
-        present, falling back to the hardcoded value below for local testing.
-
-    3. requirements.txt needs one new line:  requests>=2.31.0
+SETUP
+    Set PI_API_URL below to your tunnel URL.
+    Or add to Streamlit Cloud Secrets:
+        PI_API_URL = "https://utmiotsecurityg4.dpdns.org"
 """
 
 import io
+import os
+import glob
 import requests
 import pandas as pd
 import streamlit as st
 from datetime import datetime
 
-# ── CONFIG ─────────────────────────────────────────────────────────────────
-# Prefer Streamlit Secrets (set in Streamlit Cloud dashboard) over hardcoding.
-# Falls back to this default so local testing still works without secrets.
+# ── CONFIG ────────────────────────────────────────────────────────────────────
 try:
     PI_API_URL = st.secrets["PI_API_URL"]
 except Exception:
-    PI_API_URL = "https://utmiotsecurityg4.dpdns.org"  
+    PI_API_URL = "https://utmiotsecurityg4.dpdns.org"   # ← your tunnel URL
 
-REQUEST_TIMEOUT = 5  # seconds — fail fast rather than freezing the dashboard
+REQUEST_TIMEOUT = 5   # seconds — fail fast, don't freeze the dashboard
+
+# ── Threat level mapping ──────────────────────────────────────────────────────
+# Pi writes: Pending / Low / Medium / High
+# Dashboard shows: None / Warning / Suspicious
+THREAT_MAP = {
+    "":        "None",
+    "Pending": "Warning",
+    "Low":     "Warning",
+    "Medium":  "Suspicious",
+    "High":    "Suspicious",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,10 +51,8 @@ REQUEST_TIMEOUT = 5  # seconds — fail fast rather than freezing the dashboard
 
 def _safe_get(path: str):
     """
-    Makes a GET request to the Pi API. Returns the requests.Response on
-    success, or None on any failure (timeout, connection error, 404, etc).
-    Centralising this means every public function below has the same
-    one-line failure handling.
+    GET request to Pi API.
+    Returns requests.Response on success, None on any failure.
     """
     try:
         resp = requests.get(f"{PI_API_URL}{path}", timeout=REQUEST_TIMEOUT)
@@ -68,31 +65,42 @@ def _safe_get(path: str):
 @st.cache_data(ttl=5)
 def _fetch_logs_df() -> pd.DataFrame:
     """
-    Fetches and parses security_logs.csv from the Pi.
-    Cached for 5 seconds so rapid page switches / reruns don't hammer
-    the Pi with repeat requests — matches the "every few seconds is fine"
-    real-time requirement you chose.
+    Fetches security_logs.csv from Pi via /logs endpoint.
+    Cached 5 seconds — avoids hammering Pi on every rerun.
+
+    CSV columns from your Pi (main.py):
+        timestamp, event_type, visitor_name, auth_result,
+        threat_level, door_status, confidence, img_file
     """
+    empty = pd.DataFrame(columns=[
+        "timestamp", "event_type", "visitor_name", "auth_result",
+        "threat_level", "door_status", "confidence", "img_file",
+    ])
+
     resp = _safe_get("/logs")
     if resp is None:
-        return pd.DataFrame(columns=[
-            "timestamp", "visitor_name", "motion", "auth_result",
-            "threat_level", "door_status", "confidence", "img_file",
-        ])
+        return empty
+
     try:
-        df = pd.read_csv(io.StringIO(resp.text), parse_dates=["timestamp"])
+        df = pd.read_csv(
+            io.StringIO(resp.text),
+            parse_dates=["timestamp"],
+        )
+        # Normalise column names — strip whitespace just in case
+        df.columns = df.columns.str.strip()
+        # Fill NaN strings
+        df = df.fillna("")
         return df.sort_values("timestamp", ascending=False)
     except Exception:
-        # CSV exists but is malformed/empty — fail safe rather than crash
-        return pd.DataFrame(columns=[
-            "timestamp", "visitor_name", "motion", "auth_result",
-            "threat_level", "door_status", "confidence", "img_file",
-        ])
+        return empty
 
 
 @st.cache_data(ttl=5)
 def _fetch_state() -> dict:
-    """Fetches the latest state.json snapshot from the Pi (door/motion/RAM)."""
+    """
+    Fetches /state JSON from Pi webapp.
+    Returns empty dict if Pi unreachable.
+    """
     resp = _safe_get("/state")
     if resp is None:
         return {}
@@ -103,182 +111,303 @@ def _fetch_state() -> dict:
 
 
 def _pi_image_url(filename: str) -> str:
-    """Builds the full URL for a single image served by pi_server.py."""
-    return f"{PI_API_URL}/images/{filename}"
+    """
+    Builds full image URL using Pi's existing /stranger/<filename> route.
+    Handles both bare filenames and full paths.
+    """
+    if not filename:
+        return None
+    basename = os.path.basename(str(filename))
+    if not basename:
+        return None
+    return f"{PI_API_URL}/stranger/{basename}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 1 — System / device state  (used by page1_realtime.py)
+# SECTION 1 — System / device state  →  page1_realtime.py
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_system_state() -> dict:
     """
-    Same return shape as the original mock version, so page1_realtime.py
-    needs ZERO changes. Values now come from the Pi's /state endpoint
-    (refreshed every 5 seconds via the cache above).
+    Returns live system state from Pi /state endpoint.
+    Same return shape as original mock — page1_realtime.py needs no changes.
+
+    Falls back to safe defaults if Pi is unreachable.
     """
     state = _fetch_state()
 
-    last_img = state.get("last_visitor_img")
-    # Turn "stranger_004.jpg" into a full URL st.image() can load directly.
-    last_img_url = _pi_image_url(last_img) if last_img else None
+    # Build image URL from filename (Pi sends bare filename or full path)
+    raw_img      = state.get("last_visitor_img") or ""
+    last_img_url = _pi_image_url(raw_img) if raw_img else None
+
+    # Map Pi threat level → dashboard level
+    raw_threat  = state.get("threat_level", "")
+    dash_threat = THREAT_MAP.get(raw_threat, "None")
 
     return {
-        "motion_detected":  state.get("motion_detected", False),
+        "motion_detected":  bool(state.get("motion_detected", False)),
         "camera_status":    state.get("camera_status", "Standby"),
-        "last_visitor":      state.get("last_visitor", "—"),
-        "auth_result":       state.get("auth_result", "—"),
-        "threat_level":      state.get("threat_level", "None"),
-        "suspicious_count": state.get("suspicious_count", 0),
-        "door_status":       state.get("door_status", "Closed"),
-        "door_alert":        state.get("door_alert", False),
-        "pir_ok":            state.get("pir_ok", True),
-        "camera_ok":         state.get("camera_ok", True),
-        "door_sensor_ok":    state.get("door_sensor_ok", True),
-        "speaker_ok":        state.get("speaker_ok", True),
+        "last_visitor":     state.get("last_visitor", "—"),
+        "auth_result":      state.get("auth_result", "—"),
+        "threat_level":     dash_threat,
+        "suspicious_count": int(state.get("suspicious_count", 0)),
+        "door_status":      state.get("door_status", "Closed"),
+        "door_alert":       bool(state.get("door_alert", False)),
+        "pir_ok":           bool(state.get("pir_ok", True)),
+        "camera_ok":        bool(state.get("camera_ok", True)),
+        "door_sensor_ok":   bool(state.get("door_sensor_ok", True)),
+        "speaker_ok":       bool(state.get("speaker_ok", True)),
         "last_visitor_img": last_img_url,
-        "last_event_time":   state.get("last_event_time", "—"),
-        "access_count":      state.get("access_count", 0),
+        "last_event_time":  state.get("last_event_time", "—"),
+        "access_count":     int(state.get("access_count", 0)),
+    }
+
+
+def get_ram_usage() -> dict:
+    """
+    RAM breakdown pulled from /state → ram key.
+    Falls back to estimated values if Pi unreachable.
+    """
+    state = _fetch_state()
+    ram   = state.get("ram", {})
+    return {
+        "os_streamlit_mb":     int(ram.get("os_streamlit_mb",     600)),
+        "face_recognition_mb": int(ram.get("face_recognition_mb", 350)),
+        "opencv_camera_mb":    int(ram.get("opencv_camera_mb",    150)),
+        "mqtt_sensors_mb":     int(ram.get("mqtt_sensors_mb",      40)),
+        "total_pi_ram_mb":     int(ram.get("total_pi_ram_mb",    4096)),
     }
 
 
 def stop_alarm() -> dict:
     """
-    Calls the Pi's /alarm/stop endpoint when the dashboard's "Stop alarm"
-    button is clicked.
+    Called when dashboard Stop Alarm button is clicked.
+    POSTs to Pi /alarm/stop endpoint.
+
+    # ── REAL DATA SWAP ──────────────────────────────────────────────────────
+    # When MQTT is ready, replace this with:
+    #   import paho.mqtt.publish as publish
+    #   publish.single("security/alarm/stop", "1", hostname=PI_IP)
+    # ────────────────────────────────────────────────────────────────────────
     """
     try:
-        resp = requests.post(f"{PI_API_URL}/alarm/stop", timeout=REQUEST_TIMEOUT)
+        resp = requests.post(
+            f"{PI_API_URL}/alarm/stop",
+            timeout=REQUEST_TIMEOUT,
+        )
         resp.raise_for_status()
-        return {"success": True, "message": "Stop command sent to Raspberry Pi."}
+        return {"success": True, "message": "Stop command sent to Pi."}
     except requests.exceptions.RequestException:
-        return {"success": False,
-                "message": "Could not reach the Pi — check it's online and the tunnel is up."}
-
-
-def get_alarm_status() -> dict:
-    """
-    Optional: lets page1_realtime.py check whether a dismiss is already
-    in effect (e.g. after a page refresh).
-    """
-    resp = _safe_get("/alarm/status")
-    if resp is None:
-        return {"dismissed": False, "dismissed_at": None}
-    try:
-        return resp.json()
-    except Exception:
-        return {"dismissed": False, "dismissed_at": None}
-
-
-def get_ram_usage() -> dict:
-    """
-    Pulled from the "ram" key inside state.json.
-    """
-    state = _fetch_state()
-    ram = state.get("ram", {})
-    return {
-        "os_streamlit_mb":     ram.get("os_streamlit_mb", 0),
-        "face_recognition_mb": ram.get("face_recognition_mb", 0),
-        "opencv_camera_mb":    ram.get("opencv_camera_mb", 0),
-        "mqtt_sensors_mb":     ram.get("mqtt_sensors_mb", 0),
-        "total_pi_ram_mb":     ram.get("total_pi_ram_mb", 4096),
-    }
+        return {
+            "success": False,
+            "message": "Could not reach Pi — check tunnel and webapp are running.",
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 2 — Visitor analytics (today's counts)  (used by page2_analytics.py)
+# SECTION 2 — Visitor analytics  →  page2_analytics.py
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_today_summary() -> dict:
-    """Same shape as before. Computed live from the fetched CSV."""
+    """
+    Counts today's visitor and door events from the CSV.
+    Filters by event_type: 'visitor' for auth stats, 'door' for door stats.
+    """
+    empty = {
+        "total": 0, "authorized": 0, "unknown": 0,
+        "suspicious": 0, "door_normal": 0, "door_unauth": 0,
+    }
+
     df = _fetch_logs_df()
     if df.empty:
-        return {"total": 0, "authorized": 0, "unknown": 0,
-                 "suspicious": 0, "door_normal": 0, "door_unauth": 0}
+        return empty
 
-    today = df[df["timestamp"].dt.date == datetime.today().date()]
+    # Filter to today
+    try:
+        today_mask = df["timestamp"].dt.date == datetime.today().date()
+        today      = df[today_mask]
+    except Exception:
+        return empty
+
+    if today.empty:
+        return empty
+
+    visitors = today[today["event_type"] == "visitor"]
+    doors    = today[today["event_type"] == "door"]
+
+    # Map threat levels for suspicious count
+    suspicious_threats = {"Medium", "High"}
+
     return {
-        "total":       len(today),
-        "authorized":  int((today["auth_result"] == "Authorized").sum()),
-        "unknown":     int((today["auth_result"] == "Denied").sum()),
-        "suspicious":  int((today["threat_level"] == "Suspicious").sum()),
-        "door_normal": int((today["door_status"] == "Closed").sum()),
-        "door_unauth": int((today["door_status"] == "Attempted open").sum()),
+        "total":       len(visitors),
+        "authorized":  int((visitors["auth_result"] == "Authorized").sum()),
+        "unknown":     int((visitors["auth_result"] == "Denied").sum()),
+        "suspicious":  int(visitors["threat_level"].isin(suspicious_threats).sum()),
+        "door_normal": int((doors["door_status"] == "Closed").sum()),
+        "door_unauth": int((doors["door_status"] == "Open").sum()),
     }
 
 
-def get_activity_timeline() -> list[dict]:
-    """Same shape as before — last 10 events, most recent first."""
+def get_activity_timeline() -> list:
+    """
+    Returns last 10 visitor events (event_type='visitor') for the timeline.
+    Excludes pure door events — those go to the door chart only.
+    """
     df = _fetch_logs_df()
     if df.empty:
         return []
 
-    recent = df.sort_values("timestamp", ascending=False).head(10)
-    out = []
-    for _, row in recent.iterrows():
-        out.append({
-            "time":    row["timestamp"].strftime("%I:%M %p"),
-            "visitor": row.get("visitor_name", "Unknown"),
-            "result":  row.get("auth_result", "Denied"),
-            "threat":  row.get("threat_level", "None"),
-            "note":    f"Confidence {row.get('confidence', 0):.2f}",
-            "img":     row.get("img_file") or None,
-        })
-    return out
-
-
-def get_stranger_gallery() -> list[dict]:
-    """
-    Lists denied/unknown visitors from the CSV and matches each to a real image URL.
-    """
-    resp = _safe_get("/images-list")
-    image_files = resp.json().get("images", []) if resp else []
-
-    df = _fetch_logs_df()
-    if df.empty or not image_files:
+    visitors = df[df["event_type"] == "visitor"].head(10)
+    if visitors.empty:
         return []
 
-    denied = df[df["auth_result"] == "Denied"].copy()
-    counts = denied["img_file"].value_counts().to_dict()
+    result = []
+    for _, row in visitors.iterrows():
+        raw_threat  = str(row.get("threat_level", ""))
+        dash_threat = THREAT_MAP.get(raw_threat, "None")
+
+        # Build image URL if img_file is present
+        img_file = str(row.get("img_file", "")).strip()
+        img_url  = _pi_image_url(img_file) if img_file else None
+
+        # Format timestamp
+        try:
+            time_str = row["timestamp"].strftime("%I:%M %p")
+        except Exception:
+            time_str = str(row.get("timestamp", ""))
+
+        # Confidence display
+        try:
+            conf = float(row.get("confidence", 0))
+            note = f"Confidence: {conf:.2f}"
+        except Exception:
+            note = ""
+
+        result.append({
+            "time":    time_str,
+            "visitor": str(row.get("visitor_name", "Unknown")) or "Unknown",
+            "result":  str(row.get("auth_result", "Denied")),
+            "threat":  dash_threat,
+            "note":    note,
+            "img":     img_url,
+        })
+
+    return result
+
+
+def get_stranger_gallery() -> list:
+    """
+    Builds gallery from /images-list endpoint (stranger filenames)
+    cross-referenced with CSV denied rows for visit counts and timestamps.
+
+    Threat level is parsed from filename suffix:
+        stranger_20260619_150746_Pending.jpg → Pending → Warning
+        stranger_20260622_102739_Low.jpg     → Low     → Warning
+        stranger_20260619_163418_Medium.jpg  → Medium  → Suspicious
+    """
+    resp = _safe_get("/images-list")
+    if resp is None:
+        return []
+
+    try:
+        image_files = resp.json().get("images", [])
+    except Exception:
+        return []
+
+    if not image_files:
+        return []
+
+    df      = _fetch_logs_df()
+    denied  = df[df["auth_result"] == "Denied"] if not df.empty else pd.DataFrame()
+    counts  = denied["img_file"].apply(
+        lambda x: os.path.basename(str(x))
+    ).value_counts().to_dict() if not denied.empty else {}
 
     result = []
     for fname in image_files:
-        visits = counts.get(fname, 1)
-        match = denied[denied["img_file"] == fname]
-        time_str = (match.iloc[0]["timestamp"].strftime("%I:%M %p")
-                    if not match.empty else "")
+        # Parse threat from filename: stranger_DATE_TIME_Threat.jpg
+        try:
+            threat_raw = fname.replace(".jpg", "").split("_")[-1]
+        except Exception:
+            threat_raw = ""
+
+        dash_threat  = THREAT_MAP.get(threat_raw, "None")
+        visits       = int(counts.get(fname, 1))
+
+        # Get timestamp from matching CSV row
+        time_str = ""
+        if not denied.empty:
+            match = denied[
+                denied["img_file"].apply(
+                    lambda x: os.path.basename(str(x))
+                ) == fname
+            ]
+            if not match.empty:
+                try:
+                    time_str = match.iloc[0]["timestamp"].strftime("%I:%M %p")
+                except Exception:
+                    pass
+
         result.append({
             "label":         f"Unknown — {fname}",
             "time":          time_str,
-            "visits":        int(visits),
+            "visits":        visits,
             "img_path":      _pi_image_url(fname),
-            "is_suspicious": visits >= 3,
+            "is_suspicious": dash_threat == "Suspicious",
         })
+
     return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 3 — Audit logs  (used by page3_logs.py)
+# SECTION 3 — Audit logs  →  page3_logs.py
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_full_logs() -> pd.DataFrame:
     """
-    Same shape/column names as the original mock version, so page3_logs.py needs ZERO changes.
+    Returns all log rows as a DataFrame with display-friendly column names.
+    page3_logs.py expects these exact column names:
+        Timestamp, Visitor, Motion, Auth result, Threat, Door, Confidence
+
+    Includes both event_type='visitor' and event_type='door' rows
+    so the full audit trail is visible.
     """
+    empty = pd.DataFrame(columns=[
+        "Timestamp", "Visitor", "Motion",
+        "Auth result", "Threat", "Door", "Confidence",
+    ])
+
     df = _fetch_logs_df()
     if df.empty:
-        return pd.DataFrame(columns=[
-            "Timestamp", "Visitor", "Motion", "Auth result",
-            "Threat", "Door", "Confidence",
-        ])
+        return empty
 
-    out = pd.DataFrame({
-        "Timestamp":   df["timestamp"].dt.strftime("%I:%M:%S %p"),
-        "Visitor":     df["visitor_name"],
-        "Motion":      df["motion"],
-        "Auth result": df["auth_result"],
-        "Threat":      df["threat_level"],
-        "Door":        df["door_status"],
-        "Confidence":  df["confidence"],
-    })
-    return out
+    try:
+        # Format timestamp for display
+        try:
+            ts = df["timestamp"].dt.strftime("%Y-%m-%d %I:%M:%S %p")
+        except Exception:
+            ts = df["timestamp"].astype(str)
+
+        # Map threat levels
+        threat_display = df["threat_level"].apply(
+            lambda x: THREAT_MAP.get(str(x).strip(), "None")
+        )
+
+        # Motion column — door open = motion implied
+        motion_display = df["event_type"].apply(
+            lambda x: True if str(x) in ("visitor", "door") else False
+        )
+
+        out = pd.DataFrame({
+            "Timestamp":   ts,
+            "Visitor":     df["visitor_name"].replace("", "—"),
+            "Motion":      motion_display,
+            "Auth result": df["auth_result"].replace("", "—"),
+            "Threat":      threat_display,
+            "Door":        df["door_status"].replace("", "—"),
+            "Confidence":  pd.to_numeric(df["confidence"], errors="coerce").round(2),
+        })
+        return out
+
+    except Exception:
+        return empty
