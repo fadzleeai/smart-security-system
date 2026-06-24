@@ -13,7 +13,7 @@ st.set_page_config(
     page_icon="🔒",
     layout="wide",
     initial_sidebar_state="expanded",  # sidebar open by default
-                                       # ☰ hamburger top-left reopens it if closed
+                                       # ">" chevron top-left reopens it if closed
 )
 
 # ── Global CSS ────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ if "page" not in st.session_state:
     st.session_state["page"] = "realtime"
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
-# The ☰ hamburger icon (top-left of screen) is built into Streamlit automatically.
+# The ">" chevron icon (top-left of screen) is built into Streamlit automatically.
 # It collapses/reopens this sidebar — no extra code needed.
 
 with st.sidebar:
@@ -163,7 +163,7 @@ with st.sidebar:
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
-    st.caption("💡 Closed the menu? Click ☰ top-left to reopen.")
+    st.caption("💡 Closed the menu? Click the **>** chevron top-left to reopen.")
 
 # ── Page title ────────────────────────────────────────────────────────────────
 titles = {
