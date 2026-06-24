@@ -1,0 +1,24 @@
+# .streamlit/config.toml
+#
+# PURPOSE — Requirement 2 (overlap fix)
+#   Hides Streamlit's native top-right toolbar (the ⋮ menu, "Deploy" button,
+#   and related icons) entirely, so it stops visually overlapping the
+#   dashboard's metrics/panels on Page 1.
+#
+#   toolbarMode options:
+#     "auto"     — default: shows ⋮ menu + Deploy button
+#     "viewer"   — hides Deploy button, keeps ⋮ menu
+#     "minimal"  — hides BOTH the ⋮ menu and Deploy button entirely
+#
+#   "minimal" is used here per the requirement to fully remove the menu bar.
+#   This does NOT affect the sidebar collapse/expand ">" chevron — that
+#   stays, since it's how users reopen the sidebar (see app.py caption).
+#
+# IMPORTANT — this file must be placed at the REPO ROOT as:
+#   .streamlit/config.toml
+# (a sibling folder to app.py, NOT inside pages_src/). Streamlit Cloud reads
+# this automatically on deploy — no code changes or imports needed for it
+# to take effect.
+
+[client]
+toolbarMode = "minimal"
