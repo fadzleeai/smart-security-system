@@ -4,7 +4,7 @@ pi_server.py — Lightweight API server that runs ON THE RASPBERRY PI
 PURPOSE
     This is the ONLY thing that runs on the Pi for dashboard purposes.
     It does NOT run Streamlit (too heavy for the Pi). It just exposes
-    your existing security_logs.csv, images/ folder, and a small state.json
+    your existing security_logs.csv, images/ folder, and live state
     over HTTP, so the cloud-hosted Streamlit app can fetch them.
 
     Your face recognition / sensor backend code does NOT change at all.
@@ -21,11 +21,9 @@ RUN THIS ON THE PI
 
 WHAT YOUR BACKEND MUST KEEP DOING (unchanged)
     1. Append rows to security_logs.csv after every detection event.
-    2. Save stranger images into images/stranger_*.jpg
-    3. (Optional, for Page 1 near-real-time) write the current state to
-       state.json every time something changes — see write_state_example()
-       at the bottom of this file for the 5 lines to add to your backend.
-    4. (For the Stop Alarm button to actually work) your detection loop
+       /state below is derived live from this CSV — no extra file needed.
+    2. Save stranger images into strangers/stranger_*.jpg
+    3. (For the Stop Alarm button to actually work) your detection loop
        must occasionally CHECK alarm_dismiss.json — see
        check_alarm_dismiss_example() at the bottom of this file. This
        server only writes the flag; it has no GPIO access, so it cannot
@@ -37,25 +35,31 @@ ENDPOINTS THIS SERVER PROVIDES
     GET  /logs            -> raw CSV file content
     GET  /images/<file>   -> serves one image file
     GET  /images-list     -> list of available image filenames
-    GET  /state           -> contents of state.json (Page 1 live-ish data)
+    GET  /state           -> live state derived from security_logs.csv
     POST /alarm/stop      -> writes alarm_dismiss.json (dashboard "Stop alarm" button)
     GET  /alarm/status    -> reads back whether alarm is currently dismissed
 """
 
 import os
+import csv
 import json
 import time
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # ── CONFIG — adjust these paths to match where your backend actually writes ──
-BASE_DIR          = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR       = os.path.abspath(os.path.join(BASE_DIR, ".."))
-CSV_PATH          = os.path.join(PROJECT_DIR, "security_logs.csv")
-IMAGES_DIR        = os.path.join(PROJECT_DIR, "strangers")
-STATE_PATH        = os.path.join(BASE_DIR, "state.json")
-ALARM_FLAG_PATH   = os.path.join(BASE_DIR, "alarm_dismiss.json")
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR     = os.path.abspath(os.path.join(BASE_DIR, ".."))
+CSV_PATH        = os.path.join(PROJECT_DIR, "security_logs.csv")
+IMAGES_DIR      = os.path.join(PROJECT_DIR, "strangers")
+ALARM_FLAG_PATH = os.path.join(BASE_DIR, "alarm_dismiss.json")
+
+# How recent a detection event must be (in seconds) to count as "motion
+# detected right now" / camera "Active" on the dashboard. Anything older
+# just means nothing has happened recently, not that hardware is broken.
+RECENT_EVENT_WINDOW_SECONDS = 60
 
 app = FastAPI(title="Pi Security Data API")
 
@@ -122,54 +126,141 @@ def get_image(filename: str):
 @app.get("/state")
 def get_state():
     """
-    Returns the latest known system state (door, motion, RAM, sensors).
-    This is the "every few seconds" near-real-time piece for Page 1.
+    Returns the latest known system state (door, motion, last visitor, RAM).
 
-    Your backend should overwrite state.json each time something changes
-    (see write_state_example() below for the snippet to drop into your
-    detection loop). If state.json doesn't exist yet, we return safe mock
-    defaults so the dashboard doesn't crash before your backend writes one.
+    REAL-TIME FIX: this used to read from a state.json file that nothing
+    in the backend ever actually wrote (write_state_example() in an
+    earlier version of this file was a reference snippet only — never
+    called). That meant /state always returned hardcoded defaults no
+    matter what the hardware was doing.
+
+    Now it derives everything live from security_logs.csv — the same
+    file your detection loop / door watcher already appends to on every
+    event — so door status, last visitor, threat level, etc. reflect
+    what's actually happened, with no extra file for the backend to keep
+    in sync.
+
+    pir_ok / camera_ok / door_sensor_ok / speaker_ok stay hardcoded True
+    for now since there's no CSV column carrying sensor health — wire
+    those up later if/when your backend logs sensor faults.
     """
-    if not os.path.exists(STATE_PATH):
-        return {
-            "motion_detected":  False,
-            "camera_status":    "Standby",
-            "last_visitor":     "—",
-            "auth_result":      "—",
-            "threat_level":     "None",
-            "suspicious_count": 0,
-            "door_status":      "Closed",
-            "door_alert":       False,
-            "pir_ok":           True,
-            "camera_ok":        True,
-            "door_sensor_ok":   True,
-            "speaker_ok":       True,
-            "last_visitor_img": None,
-            "last_event_time":  "—",
-            "access_count":     0,
-            "ram": {
-                "os_streamlit_mb":     0,
-                "face_recognition_mb": 0,
-                "opencv_camera_mb":    0,
-                "mqtt_sensors_mb":     0,
-                "total_pi_ram_mb":     4096,
-            },
-        }
-    with open(STATE_PATH, "r") as f:
-        return json.load(f)
+    state = {
+        "motion_detected":  False,
+        "camera_status":    "Standby",
+        "last_visitor":     "—",
+        "auth_result":      "—",
+        "threat_level":     "",
+        "suspicious_count": 0,
+        "door_status":      "Closed",
+        "door_alert":       False,
+        "pir_ok":           True,
+        "camera_ok":        True,
+        "door_sensor_ok":   True,
+        "speaker_ok":       True,
+        "last_visitor_img": None,
+        "last_event_time":  "—",
+        "access_count":     0,
+        "ram": {
+            "os_streamlit_mb":     0,
+            "face_recognition_mb": 0,
+            "opencv_camera_mb":    0,
+            "mqtt_sensors_mb":     0,
+            "total_pi_ram_mb":     4096,
+        },
+    }
+
+    if not os.path.exists(CSV_PATH):
+        return state
+
+    try:
+        with open(CSV_PATH, "r") as f:
+            rows = list(csv.DictReader(f))
+
+        if not rows:
+            return state
+
+        # ── Door state — last door row ────────────────────────────────────
+        door_rows = [r for r in rows if r.get("event_type") == "door"]
+        if door_rows:
+            last_door = door_rows[-1]
+            door_status = last_door.get("door_status") or "Closed"
+            state["door_status"] = door_status
+            state["door_alert"]  = door_status == "Open"
+
+        # ── Visitor state — last visitor row ──────────────────────────────
+        visitor_rows = [r for r in rows if r.get("event_type") == "visitor"]
+        if visitor_rows:
+            last_v = visitor_rows[-1]
+
+            state["last_visitor"] = last_v.get("visitor_name") or "Unknown"
+            state["auth_result"]  = last_v.get("auth_result") or "—"
+            state["access_count"] = len(visitor_rows)
+
+            # Stranger image — bare filename only
+            img_file = last_v.get("img_file", "")
+            state["last_visitor_img"] = (
+                os.path.basename(img_file) if img_file else None
+            )
+
+            # Last event time — HH:MM from timestamp
+            ts = last_v.get("timestamp", "")
+            state["last_event_time"] = ts[11:16] if len(ts) >= 16 else (ts or "—")
+
+            # Threat level — keep Pi's raw value (Pending/Low/Medium/High);
+            # data_source.py on the dashboard side maps it to None/Warning/Suspicious.
+            state["threat_level"] = last_v.get("threat_level", "")
+
+            # Suspicious count — Medium or High threat rows, all time in the CSV
+            state["suspicious_count"] = sum(
+                1 for r in visitor_rows
+                if r.get("threat_level") in ("Medium", "High")
+            )
+
+            # Motion / camera status — only "Active" if the most recent
+            # detection event (visitor OR door) was genuinely recent.
+            try:
+                last_ts = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                delta = (datetime.now() - last_ts).total_seconds()
+                state["motion_detected"] = delta < RECENT_EVENT_WINDOW_SECONDS
+                state["camera_status"] = (
+                    "Active" if delta < RECENT_EVENT_WINDOW_SECONDS else "Standby"
+                )
+            except Exception:
+                pass
+
+        # If the most recent event of ANY kind is a door event newer than
+        # the last visitor event, that should also count toward "recent
+        # activity" for motion/camera status (e.g. door opened with no
+        # face recognized yet).
+        if door_rows:
+            try:
+                last_door_ts = datetime.strptime(
+                    door_rows[-1].get("timestamp", "")[:19], "%Y-%m-%d %H:%M:%S"
+                )
+                delta = (datetime.now() - last_door_ts).total_seconds()
+                if delta < RECENT_EVENT_WINDOW_SECONDS:
+                    state["motion_detected"] = True
+                    state["camera_status"] = "Active"
+            except Exception:
+                pass
+
+    except Exception:
+        # Keep safe defaults if the CSV is malformed mid-write etc.
+        pass
+
+    return state
 
 
 @app.post("/alarm/stop")
 def stop_alarm():
     """
-    Called when someone clicks "Stop alarm" on the dashboard.
+    Called by the Streamlit dashboard Stop Alarm button.
 
     IMPORTANT — this does NOT silence the buzzer directly. This server
     has no GPIO access. It only writes a small flag file recording that
     a dismiss was requested. Your detection backend must separately CHECK
     this flag (see check_alarm_dismiss_example() below) and actually turn
-    off the speaker/buzzer, then ideally update state.json so threat_level
-    reflects the dismissal too.
+    off the speaker/buzzer.
 
     Returns the flag contents so the dashboard can confirm it was written.
     """
@@ -205,44 +296,6 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
-def write_state_example():
-    """
-    NOT CALLED — this is a copy-paste reference for your backend developer
-    (Student 3 / Student 4). Drop this snippet into your detection loop
-    anywhere the system state changes (motion detected, door opens, auth
-    result determined, etc). Keep it cheap — just dumping a small dict to
-    a JSON file, no extra dependencies.
-
-    import json
-
-    def update_state(motion, camera_status, last_visitor, auth_result,
-                      threat_level, suspicious_count, door_status,
-                      last_visitor_img, last_event_time, access_count,
-                      ram_dict):
-        state = {
-            "motion_detected":  motion,
-            "camera_status":    camera_status,
-            "last_visitor":     last_visitor,
-            "auth_result":      auth_result,
-            "threat_level":     threat_level,
-            "suspicious_count": suspicious_count,
-            "door_status":      door_status,
-            "door_alert":       door_status == "Open",
-            "pir_ok": True, "camera_ok": True,
-            "door_sensor_ok": True, "speaker_ok": True,
-            "last_visitor_img": last_visitor_img,   # e.g. "stranger_004.jpg"
-            "last_event_time":  last_event_time,
-            "access_count":     access_count,
-            "ram": ram_dict,
-        }
-        with open("state.json", "w") as f:
-            json.dump(state, f)
-
-    Call update_state(...) right after each detection event resolves.
-    """
-    pass
-
-
 def check_alarm_dismiss_example():
     """
     NOT CALLED — copy-paste reference for your backend developer.
@@ -263,7 +316,6 @@ def check_alarm_dismiss_example():
             flag = json.load(f)
         if flag.get("dismissed"):
             # silence_buzzer() — your actual GPIO/speaker-off call
-            # Optionally also reset threat_level in your next state.json write
             os.remove(ALARM_FLAG_PATH)   # consume the flag so it only fires once
 
     Call check_and_handle_dismiss() once per loop iteration in your main
