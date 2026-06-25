@@ -123,36 +123,49 @@ FLOW_STEPS = [
 ]
 
 def _render_flow():
-    cols = st.columns(len(FLOW_STEPS))
-    for i, (col, step) in enumerate(zip(cols, FLOW_STEPS)):
-        is_last = i == len(FLOW_STEPS) - 1
-        # Uses the theme's own CSS variables (set in app.py) instead of
-        # hardcoded blue/gray, so this pipeline diagram actually follows
-        # whichever palette — light or dark — is currently active.
-        bg    = "var(--accent-bright)" if is_last else "var(--bg-card-alt)"
-        color = "var(--text-on-accent)" if is_last else "var(--text-primary)"
-        with col:
-            # BUGFIX, per explicit feedback: white-space:nowrap +
-            # overflow:hidden + text-overflow:ellipsis (added in an
-            # earlier pass to fix vertical centering) was confirmed via
-            # screenshot to be truncating/cutting words mid-letter
-            # ("Streamlit" -> "amlit...", "tunnel" -> "tu") instead of
-            # wrapping cleanly. Reverted to allow multi-line wrapping
-            # instead, using the exact properties requested: white-space:
-            # normal lets it wrap across multiple lines; word-break:
-            # keep-all and overflow-wrap: break-word together ensure a
-            # whole word moves to the next line as a unit rather than
-            # ANY single letter being orphaned mid-word. No fixed width
-            # set on the pill itself — it sizes from its column, and
-            # min-height (not a fixed height) lets it grow taller for
-            # longer phrases instead of clipping.
+    # Per explicit feedback (screenshot annotation): the first 7 steps
+    # need a visible boundary that hugs THEIR combined width, separate
+    # from the 8th ("Streamlit fetches via tunnel"), which gets its own
+    # independently-sized boundary, both sitting side by side on one row.
+    #
+    # Both the OUTER row (flow_main_steps vs flow_last_step) and the
+    # INNER row (the 7 individual pills) now use st.container(horizontal
+    # =True) rather than st.columns() — confirmed via Streamlit's own
+    # docs that horizontal containers size themselves based on content,
+    # while st.columns() always divides 100% of the PARENT's width into
+    # fixed proportions regardless of actual content size. Mixing the
+    # two (content-sized outer wrapper + percentage-based inner columns)
+    # would fight against itself — the inner columns would still try to
+    # claim however much width the now-shrunk parent happens to have,
+    # which isn't the same thing as sizing to each pill's own text.
+    # Using horizontal=True consistently at both levels keeps every pill
+    # sized to its own label, and the whole 7-pill group then naturally
+    # hugs the sum of those individual pill widths.
+    main_steps = FLOW_STEPS[:-1]
+    last_step  = FLOW_STEPS[-1]
+
+    with st.container(horizontal=True):
+        with st.container(key="flow_main_steps", horizontal=True):
+            for step in main_steps:
+                st.markdown(
+                    f'<div style="background:var(--bg-card-alt);color:var(--text-primary);'
+                    f'border-radius:20px;padding:8px 10px;font-size:0.7rem;font-weight:600;'
+                    f'text-align:center;line-height:1.3;min-height:48px;'
+                    f'display:flex;align-items:center;justify-content:center;'
+                    f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;'
+                    f'width:fit-content;">'
+                    f'{step}</div>',
+                    unsafe_allow_html=True,
+                )
+
+        with st.container(key="flow_last_step"):
             st.markdown(
-                f'<div style="background:{bg};color:{color};border-radius:20px;'
-                f'padding:8px 10px;font-size:0.7rem;font-weight:600;'
+                f'<div style="background:var(--accent-bright);color:var(--text-on-accent);'
+                f'border-radius:20px;padding:8px 10px;font-size:0.7rem;font-weight:600;'
                 f'text-align:center;line-height:1.3;min-height:48px;'
                 f'display:flex;align-items:center;justify-content:center;'
                 f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;">'
-                f'{step}</div>',
+                f'{last_step}</div>',
                 unsafe_allow_html=True,
             )
 
