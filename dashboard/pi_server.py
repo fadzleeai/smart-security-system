@@ -328,6 +328,49 @@ def get_reviewed_strangers():
     return {"reviewed": sorted(_load_reviewed_set())}
 
 
+@app.get("/stranger/pending")
+def get_pending_stranger():
+    """
+    BUG FIX: /state only ever reports the SINGLE MOST RECENT visitor row's
+    img_file. If an authorized visitor (no photo) walks in right after an
+    unreviewed stranger, /state's last_visitor_img goes back to None —
+    the stranger silently vanishes from the popup system even though
+    nobody ever reviewed them. This endpoint fixes that by scanning ALL
+    Denied rows with a photo, not just the latest row, and returning the
+    OLDEST unreviewed one (so strangers get worked through in the order
+    they appeared, not just whichever happened to be most recent).
+
+    Returns {"filename": None} if there's nothing unreviewed pending.
+    """
+    if not os.path.exists(CSV_PATH):
+        return {"filename": None}
+
+    try:
+        with open(CSV_PATH, "r") as f:
+            rows = list(csv.DictReader(f))
+    except Exception:
+        return {"filename": None}
+
+    reviewed = _load_reviewed_set()
+
+    # Oldest-first: rows are already in the order they were appended
+    # (chronological), so the first unreviewed match found IS the oldest.
+    for row in rows:
+        if row.get("event_type") != "visitor":
+            continue
+        if row.get("auth_result") != "DENIED":
+            continue
+        img_file = row.get("img_file", "")
+        if not img_file:
+            continue
+        basename = os.path.basename(img_file)
+        if basename in reviewed:
+            continue
+        return {"filename": basename}
+
+    return {"filename": None}
+
+
 @app.post("/stranger/tag")
 def tag_stranger(filename: str, label: str):
     """
@@ -368,17 +411,27 @@ def tag_stranger(filename: str, label: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Could not copy image: {e}")
 
-    # Append a new CSV row recording this tag decision (append-only,
-    # consistent with write_log_row()'s locking in main.py — this endpoint
-    # uses its own simple append since it's a separate process from the
-    # detection loop and the dashboard action rate is naturally low).
+    # Append a new CSV row recording this tag decision (does NOT edit the
+    # original detection row — clean audit trail). Uses the SAME fcntl
+    # locking scheme as main.py's write_log_row() — without this, this
+    # endpoint (a separate OS process from main.py's detection loop) could
+    # interleave its write with an in-progress locked write from main.py,
+    # since flock() only coordinates between writers that actually request
+    # it. Both sides now participate in the same lock.
     try:
-        file_exists = os.path.isfile(CSV_PATH) and os.path.getsize(CSV_PATH) > 0
+        import fcntl
         with open(CSV_PATH, "a") as f:
-            if not file_exists:
-                f.write("timestamp,event_type,visitor_name,auth_result,threat_level,door_status,confidence,img_file\n")
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"{timestamp},visitor,Unknown,{label},,,,{safe_name}\n")
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                file_exists = f.tell() > 0
+                if not file_exists:
+                    f.write("timestamp,event_type,visitor_name,auth_result,threat_level,door_status,confidence,img_file\n")
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"{timestamp},visitor,Unknown,{label},,,,{safe_name}\n")
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not write log row: {e}")
 
