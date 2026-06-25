@@ -191,11 +191,25 @@ def render():
     if not state["pi_reachable"]:
         col_msg, col_retry = st.columns([6, 1])
         with col_msg:
-            st.error(
-                "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
-                "unknown, not necessarily faulty. Check the tunnel or retry.",
-                icon="🚨",
-            )
+            # width="content" per explicit feedback that this banner
+            # shouldn't span the full row — confirmed this is a real,
+            # currently-supported parameter on st.error/st.warning
+            # (default is width="stretch"). Falls back gracefully to
+            # full-width on older Streamlit versions that don't yet
+            # recognize this parameter, rather than erroring.
+            try:
+                st.error(
+                    "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
+                    "unknown, not necessarily faulty. Check the tunnel or retry.",
+                    icon="🚨",
+                    width="content",
+                )
+            except TypeError:
+                st.error(
+                    "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
+                    "unknown, not necessarily faulty. Check the tunnel or retry.",
+                    icon="🚨",
+                )
         with col_retry:
             with st.container(key="retry_btn_container"):
                 # use_container_width=True removed — per explicit feedback
