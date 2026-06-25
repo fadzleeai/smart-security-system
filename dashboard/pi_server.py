@@ -84,6 +84,17 @@ def get_logs():
     """
     Returns the raw CSV content as plain text.
     The Streamlit side will parse this into a DataFrame.
+
+    ISSUE 4 — Latent Logic Vulnerability (read side):
+    main.py's write_log_row() now holds an exclusive fcntl lock only for
+    the brief moment it appends a row. This read does NOT take a matching
+    lock — deliberately: a single appended row is well under the OS's
+    atomic single-write size, so a reader either sees the file before or
+    after that write completes, never mid-row. Adding a lock here would
+    make every dashboard refresh briefly block on the detection loop
+    (or vice versa) for a protection that's already provided by how
+    short, single writes work at the OS level. If rows ever grow large
+    enough to need multiple write() calls, revisit this.
     """
     if not os.path.exists(CSV_PATH):
         raise HTTPException(status_code=404, detail="security_logs.csv not found yet")
