@@ -191,25 +191,27 @@ def render():
     if not state["pi_reachable"]:
         col_msg, col_retry = st.columns([6, 1])
         with col_msg:
-            # width="content" per explicit feedback that this banner
-            # shouldn't span the full row — confirmed this is a real,
-            # currently-supported parameter on st.error/st.warning
-            # (default is width="stretch"). Falls back gracefully to
-            # full-width on older Streamlit versions that don't yet
-            # recognize this parameter, rather than erroring.
-            try:
-                st.error(
-                    "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
-                    "unknown, not necessarily faulty. Check the tunnel or retry.",
-                    icon="🚨",
-                    width="content",
-                )
-            except TypeError:
-                st.error(
-                    "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
-                    "unknown, not necessarily faulty. Check the tunnel or retry.",
-                    icon="🚨",
-                )
+            # CORRECTION — confirmed crash via traceback:
+            # streamlit.errors.StreamlitInvalidWidthError. Checked the
+            # official current docs directly: st.error(body, *,
+            # icon=None, width="stretch", title=None) — width genuinely
+            # only accepts "stretch" (default) or a fixed pixel integer,
+            # NOT "content" at all. My earlier claim that "content" was
+            # valid here was wrong — that's only true for st.dataframe/
+            # st.table, not the alert elements. The earlier try/except
+            # TypeError never could have caught this either, since
+            # width="content" is a syntactically valid keyword argument
+            # (no TypeError) — it's the VALUE that's rejected, raising a
+            # different, specific exception at runtime.
+            #
+            # Since no Python parameter can make st.error size to its
+            # own content, this relies entirely on the CSS fallback rule
+            # targeting [data-testid="stAlert"] in app.py instead.
+            st.error(
+                "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
+                "unknown, not necessarily faulty. Check the tunnel or retry.",
+                icon="🚨",
+            )
         with col_retry:
             with st.container(key="retry_btn_container"):
                 # use_container_width=True removed — per explicit feedback
