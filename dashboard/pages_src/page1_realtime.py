@@ -7,7 +7,19 @@ unsafe_allow_html=True. Door illustration uses pure CSS divs instead.
 """
 
 import streamlit as st
-from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable, THEME_COLORS
+from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable
+
+# Door illustration theme colors — see _render_door() for why this needs
+# actual theme detection (components.html() renders in an isolated
+# iframe that can't read the page's CSS variables at all, and a single
+# fixed gray was tested and confirmed to NOT have adequate contrast on
+# both light and dark card backgrounds simultaneously — see the
+# calculation in the conversation: best single-gray candidate only hit
+# 4.56:1 on white but 1.28:1 on the dark card, or vice versa).
+try:
+    _door_theme = st.context.theme.type
+except Exception:
+    _door_theme = "light"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,46 +73,80 @@ def _door_status_badge(door_sensor_ok: bool, is_open: bool) -> str:
 def _render_door(is_open: bool, offline: bool = False):
     import streamlit.components.v1 as components
 
+    # Two full color sets, picked for actual contrast against each
+    # theme's real card background (#FFFFFF light / #4f6783 dark) — a
+    # single fixed gray was tested and confirmed inadequate on both at
+    # once, so this genuinely needs the conditional, not just a tidier
+    # single value.
+    if _door_theme == "dark":
+        frame_color  = "#E8F4F7"  # 5.20:1 on dark card — was hardcoded #6b7280 (light-mode-only)
+        offline_bg   = "#6a8ba0"  # was #f3f4f6 (light gray, invisible-ish on dark cards)
+        offline_dash = "#81a8b9"
+        offline_knob = "#9bcbd7"
+        offline_text = "#81a8b9"
+        open_bg      = "#4f6783"  # was #e5e7eb
+        open_border  = "#81a8b9"
+        open_knob    = "#9bcbd7"
+        open_text    = "#ED8D5A"  # warm alert orange still reads as "warning" on dark
+        closed_bg    = "#4f6783"
+        closed_border = "#81a8b9"
+        closed_knob  = "#9bcbd7"
+        closed_text  = "#aee3eb"  # bright cyan reads as the "good/closed" state in dark mode
+    else:
+        frame_color  = "#6b7280"
+        offline_bg   = "#f3f4f6"
+        offline_dash = "#9ca3af"
+        offline_knob = "#d1d5db"
+        offline_text = "#6b7280"
+        open_bg      = "#e5e7eb"
+        open_border  = "#d1d5db"
+        open_knob    = "#9ca3af"
+        open_text    = "#ef4444"
+        closed_bg    = "#e5e7eb"
+        closed_border = "#d1d5db"
+        closed_knob  = "#9ca3af"
+        closed_text  = "#10b981"
+
     if offline:
         # Sensor unreachable — gray/dashed door, "?" rather than claiming a
         # state we can't actually verify from hardware right now.
-        panel_style = ("position:absolute;top:4px;left:4px;right:4px;bottom:0;"
-                       "background:#f3f4f6;border-radius:2px 2px 0 0;"
-                       "border:1px dashed #9ca3af;")
-        knob_style  = ("position:absolute;right:7px;top:50%;width:6px;height:6px;"
-                       "background:#d1d5db;border-radius:50%;transform:translateY(-50%);")
-        label_style = "color:#6b7280;font-size:12px;font-weight:700;margin-top:6px;"
+        panel_style = (f"position:absolute;top:4px;left:4px;right:4px;bottom:0;"
+                       f"background:{offline_bg};border-radius:2px 2px 0 0;"
+                       f"border:1px dashed {offline_dash};")
+        knob_style  = (f"position:absolute;right:7px;top:50%;width:6px;height:6px;"
+                       f"background:{offline_knob};border-radius:50%;transform:translateY(-50%);")
+        label_style = f"color:{offline_text};font-size:12px;font-weight:700;margin-top:6px;"
         label_text  = "&#9888; OFFLINE"
     elif is_open:
-        panel_style = ("position:absolute;top:4px;left:4px;bottom:0;width:14px;"
-                       "background:#e5e7eb;border-radius:2px 0 0 0;"
-                       "border:1px solid #d1d5db;"
-                       "transform:perspective(60px) rotateY(-70deg);"
-                       "transform-origin:left center;")
-        knob_style  = ("position:absolute;right:3px;top:50%;width:5px;height:5px;"
-                       "background:#9ca3af;border-radius:50%;transform:translateY(-50%);")
-        label_style = "color:#ef4444;font-size:12px;font-weight:700;margin-top:6px;"
+        panel_style = (f"position:absolute;top:4px;left:4px;bottom:0;width:14px;"
+                       f"background:{open_bg};border-radius:2px 0 0 0;"
+                       f"border:1px solid {open_border};"
+                       f"transform:perspective(60px) rotateY(-70deg);"
+                       f"transform-origin:left center;")
+        knob_style  = (f"position:absolute;right:3px;top:50%;width:5px;height:5px;"
+                       f"background:{open_knob};border-radius:50%;transform:translateY(-50%);")
+        label_style = f"color:{open_text};font-size:12px;font-weight:700;margin-top:6px;"
         label_text  = "&#9888; OPEN"
     else:
-        panel_style = ("position:absolute;top:4px;left:4px;right:4px;bottom:0;"
-                       "background:#e5e7eb;border-radius:2px 2px 0 0;"
-                       "border:1px solid #d1d5db;")
-        knob_style  = ("position:absolute;right:7px;top:50%;width:6px;height:6px;"
-                       "background:#9ca3af;border-radius:50%;transform:translateY(-50%);")
-        label_style = "color:#10b981;font-size:12px;font-weight:700;margin-top:6px;"
+        panel_style = (f"position:absolute;top:4px;left:4px;right:4px;bottom:0;"
+                       f"background:{closed_bg};border-radius:2px 2px 0 0;"
+                       f"border:1px solid {closed_border};")
+        knob_style  = (f"position:absolute;right:7px;top:50%;width:6px;height:6px;"
+                       f"background:{closed_knob};border-radius:50%;transform:translateY(-50%);")
+        label_style = f"color:{closed_text};font-size:12px;font-weight:700;margin-top:6px;"
         label_text  = "&#10003; CLOSED"
 
     html = (
         "<div style='display:flex;flex-direction:column;align-items:center;"
         "margin:6px 0;font-family:sans-serif;'>"
-        "<div style='width:64px;height:86px;border:3px solid #6b7280;"
+        f"<div style='width:64px;height:86px;border:3px solid {frame_color};"
         "border-bottom:none;border-radius:4px 4px 0 0;position:relative;"
         "background:transparent;'>"
         f"<div style='{panel_style}'>"
         f"<div style='{knob_style}'></div>"
         "</div>"
         "</div>"
-        "<div style='width:84px;height:3px;background:#6b7280;border-radius:2px;'></div>"
+        f"<div style='width:84px;height:3px;background:{frame_color};border-radius:2px;'></div>"
         f"<div style='{label_style}'>{label_text}</div>"
         "</div>"
     )
@@ -114,11 +160,11 @@ def _ram_bar(label: str, used_mb: int, total_mb: int, color: str = "#3b82f6"):
     bar_color = "#ef4444" if pct > 80 else color
     st.markdown(f"""
     <div style="margin-bottom:7px">
-      <div style="display:flex;justify-content:space-between;
-                  font-size:0.74rem;color:{THEME_COLORS['text_secondary_on_card']};margin-bottom:2px">
+      <div class="label-secondary" style="display:flex;justify-content:space-between;
+                  font-size:0.74rem;margin-bottom:2px">
         <span>{label}</span><span>{used_mb} MB</span>
       </div>
-      <div style="background:{THEME_COLORS['track_bg']};border-radius:4px;height:7px;overflow:hidden">
+      <div class="track-bg" style="border-radius:4px;height:7px;overflow:hidden">
         <div style="width:{pct:.0f}%;height:100%;background:{bar_color};
                     border-radius:4px;"></div>
       </div>
@@ -143,7 +189,7 @@ def render():
     # independently of any individual sensor field — so this is true "can we
     # reach the Pi at all" status, not inferred from possibly-stale defaults.
     if not state["pi_reachable"]:
-        col_msg, col_retry = st.columns([5, 1])
+        col_msg, col_retry = st.columns([6, 1])
         with col_msg:
             st.error(
                 "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
@@ -151,10 +197,18 @@ def render():
                 icon="🚨",
             )
         with col_retry:
-            st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-            if st.button("🔄 Retry", key="pi_retry", use_container_width=True):
-                is_pi_reachable.clear()  # drop the cached "unreachable" result
-                st.rerun()
+            with st.container(key="retry_btn_container"):
+                # use_container_width=True removed — per explicit feedback
+                # that this stretched the button to fill its whole column
+                # (sized by the [6,1] ratio) regardless of how short
+                # "Retry" actually is. Wrapped in a keyed container so the
+                # CSS rule below (.st-key-retry_btn_container) can exclude
+                # just this one column from the global card-wrapper
+                # styling — a single small action button doesn't need the
+                # full "panel" card treatment Smart Event Panel etc. get.
+                if st.button("🔄 Retry", key="pi_retry"):
+                    is_pi_reachable.clear()  # drop the cached "unreachable" result
+                    st.rerun()
 
     # ── Alarm dismiss tracking ────────────────────────────────────────────────
     # session_state gives an immediate UI response (banner hides the moment
@@ -207,7 +261,7 @@ def render():
 
         for key, val in rows:
             c1, c2 = st.columns([2, 3])
-            c1.markdown(f'<span style="font-size:0.82rem;color:{THEME_COLORS["text_secondary_on_card"]}">{key}</span>',
+            c1.markdown(f'<span class="label-secondary" style="font-size:0.82rem">{key}</span>',
                         unsafe_allow_html=True)
             c2.markdown(f'<span style="font-size:0.82rem;font-weight:500">{val}</span>',
                         unsafe_allow_html=True)
