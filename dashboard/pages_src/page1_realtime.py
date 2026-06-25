@@ -308,7 +308,13 @@ def render():
         _ram_bar("OS + Streamlit",   ram["os_streamlit_mb"],     total)
         _ram_bar("Face recognition", ram["face_recognition_mb"], total)
         _ram_bar("OpenCV / camera",  ram["opencv_camera_mb"],    total)
-        _ram_bar("MQTT + sensors",   ram["mqtt_sensors_mb"],     total)
+        # Originally labeled "MQTT + sensors" — leftover from the mock
+        # dashboard era; MQTT was never implemented (HTTP/Cloudflare
+        # Tunnel is used instead throughout). Relabeled honestly rather
+        # than guessing a replacement category — this slot is wired but
+        # genuinely unmeasured until pi_server.py's /state endpoint
+        # actually reports a real number here (currently hardcoded 0).
+        _ram_bar("Other / unmeasured", ram["mqtt_sensors_mb"],   total)
 
         total_used = sum([
             ram["os_streamlit_mb"],
