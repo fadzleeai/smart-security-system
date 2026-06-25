@@ -63,6 +63,34 @@ def _safe_get(path: str):
 
 
 @st.cache_data(ttl=5)
+def is_pi_reachable() -> bool:
+    """
+    Single source of truth for "can we actually talk to the Pi right now."
+
+    ISSUE 1 FIX — Connection Drop Blindness:
+    Previously, get_system_state() inferred hardware health purely from
+    field values inside the /state response (pir_ok, camera_ok, etc), each
+    defaulting to True. When the tunnel is down, _fetch_state() returns {},
+    and `state.get("pir_ok", True)` returns True — not because the Pi said
+    so, but because the key was simply absent. That made "Pi unreachable"
+    indistinguishable from "Pi says everything is fine."
+
+    This function checks reachability directly and explicitly, independent
+    of what any individual field says, so callers can tell the two apart.
+    Cached 5s alongside the other fetches so a dead tunnel doesn't add a
+    fresh multi-second timeout delay on every single rerun.
+
+    NOTE: tries /health first (lightweight, no payload to parse), but
+    falls back to /state if /health isn't implemented on your Flask
+    backend (src/webapp.py) — confirm with whoever owns that file which
+    routes actually exist; this fallback means the check works either way.
+    """
+    if _safe_get("/health") is not None:
+        return True
+    return _safe_get("/state") is not None
+
+
+@st.cache_data(ttl=5)
 def _fetch_logs_df() -> pd.DataFrame:
     """
     Fetches security_logs.csv from Pi via /logs endpoint.
@@ -100,6 +128,11 @@ def _fetch_state() -> dict:
     """
     Fetches /state JSON from Pi webapp.
     Returns empty dict if Pi unreachable.
+
+    Reachability itself is NOT tracked here — see is_pi_reachable() above,
+    which is the single source of truth for that, used independently by
+    get_system_state() below. Keeping that logic in one place avoids two
+    different functions disagreeing about whether the Pi is up.
     """
     resp = _safe_get("/state")
     if resp is None:
@@ -130,11 +163,17 @@ def _pi_image_url(filename: str) -> str:
 def get_system_state() -> dict:
     """
     Returns live system state from Pi /state endpoint.
-    Same return shape as original mock — page1_realtime.py needs no changes.
+    Same return shape as original mock — page1_realtime.py needs no changes
+    EXCEPT it must now also check the "pi_reachable" key before trusting
+    any *_ok / status field (see ISSUE 1 FIX note on is_pi_reachable above).
 
-    Falls back to safe defaults if Pi is unreachable.
+    When pi_reachable is False: sensor *_ok fields are forced to False
+    (not left at their optimistic True default — "no answer" must never
+    render as "Working"), and display fields fall back to neutral
+    placeholders rather than data that looks live but isn't.
     """
-    state = _fetch_state()
+    state        = _fetch_state()
+    pi_reachable = is_pi_reachable()
 
     # Build image URL from filename (Pi sends bare filename or full path)
     raw_img      = state.get("last_visitor_img") or ""
@@ -145,36 +184,54 @@ def get_system_state() -> dict:
     dash_threat = THREAT_MAP.get(raw_threat, "None")
 
     return {
-        "motion_detected":  bool(state.get("motion_detected", False)),
-        "camera_status":    state.get("camera_status", "Standby"),
-        "last_visitor":     state.get("last_visitor", "—"),
-        "auth_result":      state.get("auth_result", "—"),
-        "threat_level":     dash_threat,
-        "suspicious_count": int(state.get("suspicious_count", 0)),
-        "door_status":      state.get("door_status", "Closed"),
-        "door_alert":       bool(state.get("door_alert", False)),
-        "pir_ok":           bool(state.get("pir_ok", True)),
-        "camera_ok":        bool(state.get("camera_ok", True)),
-        "door_sensor_ok":   bool(state.get("door_sensor_ok", True)),
-        "speaker_ok":       bool(state.get("speaker_ok", True)),
-        "last_visitor_img": last_img_url,
-        "last_event_time":  state.get("last_event_time", "—"),
-        "access_count":     int(state.get("access_count", 0)),
+        "pi_reachable":     pi_reachable,
+        "motion_detected":  bool(state.get("motion_detected", False)) if pi_reachable else False,
+        "camera_status":    state.get("camera_status", "Standby") if pi_reachable else "Unknown",
+        "last_visitor":     state.get("last_visitor", "—") if pi_reachable else "—",
+        "auth_result":      state.get("auth_result", "—") if pi_reachable else "—",
+        "threat_level":     dash_threat if pi_reachable else "None",
+        "suspicious_count": int(state.get("suspicious_count", 0)) if pi_reachable else 0,
+        "door_status":      state.get("door_status", "Closed") if pi_reachable else "Unknown",
+        "door_alert":       bool(state.get("door_alert", False)) if pi_reachable else False,
+        # Sensor health — the actual issue-1 fix: False, not True, when offline.
+        "pir_ok":           bool(state.get("pir_ok", True)) if pi_reachable else False,
+        "camera_ok":        bool(state.get("camera_ok", True)) if pi_reachable else False,
+        "door_sensor_ok":   bool(state.get("door_sensor_ok", True)) if pi_reachable else False,
+        "speaker_ok":       bool(state.get("speaker_ok", True)) if pi_reachable else False,
+        "last_visitor_img": last_img_url if pi_reachable else None,
+        "last_event_time":  state.get("last_event_time", "—") if pi_reachable else "—",
+        "access_count":     int(state.get("access_count", 0)) if pi_reachable else 0,
     }
 
 
 def get_ram_usage() -> dict:
     """
     RAM breakdown pulled from /state → ram key.
-    Falls back to estimated values if Pi unreachable.
+
+    When the Pi is unreachable, returns all zeros rather than the old
+    estimated placeholder values (600/350/150/40 MB) — those numbers
+    looked exactly like real telemetry and were actually more misleading
+    than the sensor True/False issue, since a person glancing at the RAM
+    bars would have no way to tell "this is a guess" from "this is live."
+    page1_realtime.py is responsible for showing the offline banner
+    separately; this function's job is just to not lie about RAM.
     """
+    if not is_pi_reachable():
+        return {
+            "os_streamlit_mb":     0,
+            "face_recognition_mb": 0,
+            "opencv_camera_mb":    0,
+            "mqtt_sensors_mb":     0,
+            "total_pi_ram_mb":     4096,   # kept non-zero only to avoid a divide-by-zero in the % bar
+        }
+
     state = _fetch_state()
     ram   = state.get("ram", {})
     return {
-        "os_streamlit_mb":     int(ram.get("os_streamlit_mb",     600)),
-        "face_recognition_mb": int(ram.get("face_recognition_mb", 350)),
-        "opencv_camera_mb":    int(ram.get("opencv_camera_mb",    150)),
-        "mqtt_sensors_mb":     int(ram.get("mqtt_sensors_mb",      40)),
+        "os_streamlit_mb":     int(ram.get("os_streamlit_mb",     0)),
+        "face_recognition_mb": int(ram.get("face_recognition_mb", 0)),
+        "opencv_camera_mb":    int(ram.get("opencv_camera_mb",    0)),
+        "mqtt_sensors_mb":     int(ram.get("mqtt_sensors_mb",      0)),
         "total_pi_ram_mb":     int(ram.get("total_pi_ram_mb",    4096)),
     }
 
@@ -378,6 +435,23 @@ def get_stranger_gallery() -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 — Audit logs  →  page3_logs.py
 # ─────────────────────────────────────────────────────────────────────────────
+
+def refresh_logs() -> None:
+    """
+    ISSUE 3 FIX — Page 3 stagnation.
+
+    Clears only the _fetch_logs_df cache entry, not the entire
+    st.cache_data store. Clearing everything would also wipe
+    is_pi_reachable()'s and _fetch_state()'s 5s cache, causing extra
+    unrelated Pi requests on the next rerun just from clicking "refresh
+    logs" — this targets exactly the one cache that's actually stale.
+
+    page3_logs.py calls this from a "🔄 Refresh Logs" button, then
+    st.rerun() to redraw with the freshly-fetched data immediately,
+    rather than waiting for the 5s TTL to lapse naturally.
+    """
+    _fetch_logs_df.clear()
+
 
 def get_full_logs() -> pd.DataFrame:
     """
