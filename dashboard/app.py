@@ -193,11 +193,36 @@ st.markdown("<style>" + _palette_css + """
     div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) {
         align-self: flex-start;
     }
+    /* DOUBLE-BOX 3D EFFECT — major panels (Smart Event Panel, Door
+       Status, Sensor Health, etc). Per explicit request: these need a
+       genuine layered outer+inner offset, NOT a flat single shadow.
+       Implemented via ::before rather than an actual extra wrapper div
+       (Streamlit's own DOM can't be injected into to add a real wrapper
+       around its native column markup) — the pseudo-element sits
+       behind the real card, offset down-and-right, showing as a
+       "second card" peeking out. position:relative on the real card
+       is required so the pseudo-element's position:absolute is anchored
+       to it, not the page. Per the agreed resolution: these major
+       panels KEEP filling their row width (position:relative does not
+       change width/sizing at all) — only the 3D depth is added here,
+       width behavior is untouched for this category. */
     div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div {
         background: var(--bg-card);
         border-radius: 18px;
-        box-shadow: var(--card-shadow);
         padding: 10px;
+        position: relative;
+        box-shadow: none;
+    }
+    div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        right: -6px;
+        bottom: -6px;
+        background: var(--bg-card-alt);
+        border-radius: 18px;
+        z-index: -1;
     }
     /* BUGFIX: on Page 1, the "Back" button slot renders an empty column
        (cur_idx == 0 means the button is conditionally skipped, but the
@@ -207,8 +232,10 @@ st.markdown("<style>" + _palette_css + """
        for any column with genuinely no rendered content inside it. */
     div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div:empty {
         background: transparent;
-        box-shadow: none;
         padding: 0;
+    }
+    div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div:empty::before {
+        content: none;
     }
     /* BUGFIX: the Retry button (page1_realtime.py) sits in a narrow
        column that was getting the full card treatment despite holding
@@ -235,7 +262,18 @@ st.markdown("<style>" + _palette_css + """
     div[data-testid="stExpander"] {
         background: var(--bg-card);
         border-radius: 18px;
-        box-shadow: var(--card-shadow);
+        position: relative;
+    }
+    div[data-testid="stExpander"]::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        right: -6px;
+        bottom: -6px;
+        background: var(--bg-card-alt);
+        border-radius: 18px;
+        z-index: -1;
     }
 
     /* Card titles & section headers — deep accent color throughout, per
@@ -251,16 +289,33 @@ st.markdown("<style>" + _palette_css + """
 
     /* Big page titles (st.header — "Real-time monitoring & device
        status") AND the sidebar title (st.subheader — "Security
-       Dashboard") get the same card-surface + rounded-border treatment
-       as the rest of the dashboard's cards, per explicit feedback.
-       stHeadingWithActionElements is the real, current Streamlit
-       wrapper testid for st.header/st.subheader/st.title text — NOT
-       stHeader, which is a different element (the top app chrome bar). */
+       Dashboard") get the card-surface treatment AND the double-box 3D
+       effect, AND now shrink-to-fit their own text width per explicit
+       request — rather than stretching across the full row, which
+       looked disconnected from the actual title text. stHeadingWith
+       ActionElements is the real, current Streamlit wrapper testid for
+       st.header/st.subheader/st.title text — NOT stHeader, which is a
+       different element (the top app chrome bar). */
     [data-testid="stHeadingWithActionElements"] {
         background: var(--bg-card);
         border-radius: 18px;
-        box-shadow: var(--card-shadow);
         padding: 10px 16px;
+        display: inline-block;
+        width: fit-content;
+        max-width: 100%;
+        position: relative;
+        white-space: normal;
+    }
+    [data-testid="stHeadingWithActionElements"]::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        right: -6px;
+        bottom: -6px;
+        background: var(--bg-card-alt);
+        border-radius: 18px;
+        z-index: -1;
     }
 
     /* CONTRAST FIX: --text-secondary as originally assigned (#81a8b9 on
@@ -335,7 +390,19 @@ st.markdown("<style>" + _palette_css + """
         border: none !important;
         border-radius: 14px !important;
         font-weight: 600 !important;
-        box-shadow: var(--card-shadow);
+        position: relative;
+    }
+    div[data-testid="stMainBlockContainer"] .stButton > button::before,
+    div[data-testid="stDialog"] .stButton > button::before {
+        content: "";
+        position: absolute;
+        top: 4px;
+        left: 4px;
+        right: -4px;
+        bottom: -4px;
+        background: var(--bg-card-alt);
+        border-radius: 14px;
+        z-index: -1;
     }
     div[data-testid="stMainBlockContainer"] .stButton > button:hover,
     div[data-testid="stDialog"] .stButton > button:hover {
@@ -379,10 +446,21 @@ st.markdown("<style>" + _palette_css + """
         font-size: 0.9rem;
         font-weight: 700;
         margin-bottom: 12px;
-        box-shadow: var(--card-shadow);
         width: fit-content;
         max-width: 100%;
         display: inline-block;
+        position: relative;
+    }
+    .alert-danger::before, .alert-warning::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        right: -6px;
+        bottom: -6px;
+        background: var(--bg-card-alt);
+        border-radius: 14px;
+        z-index: -1;
     }
 
     /* THE fix for the "Connection to Raspberry Pi lost" banner width —
@@ -399,6 +477,18 @@ st.markdown("<style>" + _palette_css + """
     .stAlert, [data-testid="stAlert"] {
         width: fit-content !important;
         max-width: 100% !important;
+        position: relative;
+    }
+    .stAlert::before, [data-testid="stAlert"]::before {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        right: -6px;
+        bottom: -6px;
+        background: var(--bg-card-alt);
+        border-radius: 14px;
+        z-index: -1;
     }
 
     /* Image placeholder */
