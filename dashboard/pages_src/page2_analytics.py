@@ -6,7 +6,7 @@ Page 2 — Visitor analytics & stranger gallery
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from data_source import get_today_summary, get_activity_timeline, get_stranger_gallery
+from data_source import get_today_summary, get_activity_timeline, get_stranger_gallery, THEME_COLORS
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -97,7 +97,12 @@ def _door_bar_chart(summary: dict) -> go.Figure:
 def _stranger_card(item: dict):
     border = "border: 1.5px solid #fca5a5;" if item["is_suspicious"] else "border: 1px dashed #d1d5db;"
     bg     = "#fff5f5" if item["is_suspicious"] else "#f9fafb"
-    label_color = "#991b1b" if item["is_suspicious"] else "#6b7280"
+    # NOTE: bg above is still hardcoded light-mode colors, same category
+    # as the door illustration (page1_realtime.py _render_door) — both
+    # need their own dedicated dark-mode redesign pass, flagged but
+    # deliberately not done here to avoid scope creep beyond today's
+    # specific padding/contrast/font-size feedback.
+    label_color = "#991b1b" if item["is_suspicious"] else THEME_COLORS["text_secondary_on_card"]
 
     # Card wrapper (border/background/label) stays as styled HTML, but the
     # actual photo now renders via st.image() instead of a placeholder
@@ -122,7 +127,7 @@ def _stranger_card(item: dict):
 
     st.markdown(f"""
       <div style="font-size:0.78rem;font-weight:600;color:{label_color}">{item['label']}</div>
-      <div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;margin-bottom:8px">
+      <div style="font-size:0.72rem;color:{THEME_COLORS['text_secondary_on_card']};margin-top:2px;margin-bottom:8px">
         {item['time']} &bull; {item['visits']} visit(s)
       </div>
     </div>
@@ -171,8 +176,8 @@ def render():
 
             st.markdown(f"""
             <div style="display:flex;gap:10px;align-items:flex-start;
-                        padding:8px 0;border-bottom:1px solid #f3f4f6">
-              <span style="font-size:0.75rem;color:#9ca3af;min-width:62px;padding-top:3px">
+                        padding:8px 0;border-bottom:1px solid {THEME_COLORS['track_bg']}">
+              <span style="font-size:0.75rem;color:{THEME_COLORS['text_secondary_on_card']};min-width:62px;padding-top:3px">
                 {item['time']}
               </span>
               {dot}
@@ -180,7 +185,7 @@ def render():
                 <div style="font-size:0.83rem;font-weight:500">
                   {item['visitor']} &nbsp; {result_b} &nbsp; {threat_b}
                 </div>
-                <div style="font-size:0.75rem;color:#9ca3af;margin-top:2px">
+                <div style="font-size:0.75rem;color:{THEME_COLORS['text_secondary_on_card']};margin-top:2px">
                   {item['note']}
                 </div>
               </div>
@@ -207,10 +212,10 @@ def render():
                     # Fewer than 3 strangers exist — show an empty slot
                     # rather than stretching 1-2 cards to fill the row.
                     st.markdown(
-                        '<div style="border:1px dashed #e5e7eb; border-radius:8px; '
-                        'padding:20px; text-align:center; color:#d1d5db; min-height:160px; '
-                        'display:flex;align-items:center;justify-content:center">'
-                        '<span style="font-size:0.78rem">No more strangers</span></div>',
+                        f'<div style="border:1px dashed {THEME_COLORS["track_bg"]}; border-radius:8px; '
+                        f'padding:20px; text-align:center; color:{THEME_COLORS["text_secondary_on_card"]}; min-height:160px; '
+                        f'display:flex;align-items:center;justify-content:center">'
+                        f'<span style="font-size:0.78rem">No more strangers</span></div>',
                         unsafe_allow_html=True,
                     )
 
