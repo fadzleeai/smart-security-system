@@ -155,14 +155,39 @@ def _fetch_logs_df() -> pd.DataFrame:
         return empty
 
     try:
-        df = pd.read_csv(
-            io.StringIO(resp.text),
-            parse_dates=["timestamp"],
-        )
+        df = pd.read_csv(io.StringIO(resp.text))
+
         # Normalise column names — strip whitespace just in case
         df.columns = df.columns.str.strip()
-        # Fill NaN strings
-        df = df.fillna("")
+
+        # ROBUSTNESS FIX: previously used pd.read_csv(parse_dates=["timestamp"]).
+        # If even ONE row anywhere in the file has a malformed timestamp
+        # (e.g. truncated mid-write from a power cut), pandas silently
+        # gives up parsing the ENTIRE column as dates and falls back to
+        # plain strings — not an exception, a silent type downgrade.
+        # Every downstream .dt.date / .dt.strftime call would then raise
+        # AttributeError, and get_today_summary()'s blanket try/except
+        # would zero out "Today's visitors" for the WHOLE dashboard,
+        # forever, until that one bad row is manually removed — wildly
+        # disproportionate blast radius for one corrupted line.
+        #
+        # errors="coerce" instead marks ONLY the genuinely unparseable
+        # rows as NaT (pandas' null-datetime), keeping every valid row
+        # correctly typed as real datetimes. Dropped here (rare — only
+        # if the file is truly corrupted) rather than carried forward,
+        # since a row with no usable timestamp can't be meaningfully
+        # sorted, filtered by date, or displayed anyway.
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        bad_rows = df["timestamp"].isna().sum()
+        if bad_rows:
+            df = df[df["timestamp"].notna()].copy()
+
+        # Fill NaN strings in every column EXCEPT timestamp — applying
+        # fillna("") to the whole frame here would convert the just-fixed
+        # datetime column back into mixed/object dtype, undoing the fix
+        # above (NaT being a "missing value" too, fillna would touch it).
+        non_timestamp_cols = [c for c in df.columns if c != "timestamp"]
+        df[non_timestamp_cols] = df[non_timestamp_cols].fillna("")
 
         # CONFIRMED MISMATCH FIX: main.py writes result["action"] directly
         # into auth_result, which is "AUTHORIZED" / "DENIED" (all-caps) —
