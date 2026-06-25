@@ -37,11 +37,17 @@ REQUEST_TIMEOUT = 5   # seconds — fail fast, don't freeze the dashboard
 # Pi writes: Pending / Low / Medium / High
 # Dashboard shows: None / Warning / Suspicious
 THREAT_MAP = {
+    # CONFIRMED against face_recognition_engine.py's actual _risk_label()
+    # and _build_result() — these are the real, exact strings produced,
+    # not a guess. Note "HIGH" is genuinely all-caps in the source while
+    # "Low"/"Medium" are title-case — an inconsistency in that file
+    # itself, not something to "fix" here, just match exactly as-is.
     "":        "None",
-    "Pending": "Warning",
-    "Low":     "Warning",
-    "Medium":  "Suspicious",
-    "High":    "Suspicious",
+    "Pending": "Warning",     # still voting on identity, not yet confirmed
+    "Low":     "Warning",     # confirmed unknown, low repeat count
+    "Medium":  "Suspicious",  # confirmed unknown, medium repeat count
+    "HIGH":    "Suspicious",  # confirmed unknown, high repeat count (all-caps in source)
+    "Safe":    "None",        # known/authorized visitor — no threat
 }
 
 
@@ -144,6 +150,22 @@ def _fetch_logs_df() -> pd.DataFrame:
         df.columns = df.columns.str.strip()
         # Fill NaN strings
         df = df.fillna("")
+
+        # CONFIRMED MISMATCH FIX: main.py writes result["action"] directly
+        # into auth_result, which is "AUTHORIZED" / "DENIED" (all-caps) —
+        # but every comparison in page1/2/3_*.py and the functions below
+        # checks for "Authorized" / "Denied" (title-case). Without this
+        # normalisation, those comparisons silently always evaluate False:
+        # auth-rate metrics show 0%, badges always render red, the Page 3
+        # filter dropdown returns zero rows for either choice. Fixed once
+        # here, at the single chokepoint every other function reads
+        # through, rather than patching each comparison site individually.
+        if "auth_result" in df.columns:
+            df["auth_result"] = df["auth_result"].replace({
+                "AUTHORIZED": "Authorized",
+                "DENIED":     "Denied",
+            })
+
         return df.sort_values("timestamp", ascending=False)
     except Exception:
         return empty
@@ -171,7 +193,10 @@ def _fetch_state() -> dict:
 
 def _pi_image_url(filename: str) -> str:
     """
-    Builds full image URL using Pi's existing /stranger/<filename> route.
+    Builds full image URL using Pi's actual route: /images/{filename}
+    (confirmed against pi_server.py — NOT /stranger/, which doesn't exist
+    as a route at all; that was a mismatch that would have 404'd every
+    single image request even with the Pi fully online).
     Handles both bare filenames and full paths.
     """
     if not filename:
@@ -179,7 +204,7 @@ def _pi_image_url(filename: str) -> str:
     basename = os.path.basename(str(filename))
     if not basename:
         return None
-    return f"{PI_API_URL}/stranger/{basename}"
+    return f"{PI_API_URL}/images/{basename}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -205,6 +230,15 @@ def get_system_state() -> dict:
     raw_img      = state.get("last_visitor_img") or ""
     last_img_url = _pi_image_url(raw_img) if raw_img else None
 
+    # Same casing fix as _fetch_logs_df() — main.py writes "AUTHORIZED" /
+    # "DENIED" into the CSV, pi_server.py's /state endpoint passes that
+    # raw value through unchanged, so this is a SEPARATE occurrence of
+    # the same bug, not covered by the CSV-side fix since /state is a
+    # different code path entirely.
+    AUTH_RESULT_MAP = {"AUTHORIZED": "Authorized", "DENIED": "Denied"}
+    raw_auth_result = state.get("auth_result", "—")
+    dash_auth_result = AUTH_RESULT_MAP.get(raw_auth_result, raw_auth_result)
+
     # Map Pi threat level → dashboard level
     raw_threat  = state.get("threat_level", "")
     dash_threat = THREAT_MAP.get(raw_threat, "None")
@@ -214,7 +248,7 @@ def get_system_state() -> dict:
         "motion_detected":  bool(state.get("motion_detected", False)) if pi_reachable else False,
         "camera_status":    state.get("camera_status", "Standby") if pi_reachable else "Unknown",
         "last_visitor":     state.get("last_visitor", "—") if pi_reachable else "—",
-        "auth_result":      state.get("auth_result", "—") if pi_reachable else "—",
+        "auth_result":      dash_auth_result if pi_reachable else "—",
         "threat_level":     dash_threat if pi_reachable else "None",
         "suspicious_count": int(state.get("suspicious_count", 0)) if pi_reachable else 0,
         "door_status":      state.get("door_status", "Closed") if pi_reachable else "Unknown",
@@ -335,7 +369,8 @@ def get_today_summary() -> dict:
     doors    = today[today["event_type"] == "door"]
 
     # Map threat levels for suspicious count
-    suspicious_threats = {"Medium", "High"}
+    # Confirmed real value is "HIGH" (all-caps) — see THREAT_MAP comment above.
+    suspicious_threats = {"Medium", "HIGH"}
 
     return {
         "total":       len(visitors),
@@ -415,6 +450,13 @@ def get_stranger_gallery() -> list:
 
     if not image_files:
         return []
+
+    # /images-list returns filenames sorted alphabetically, which equals
+    # chronological order for this naming pattern (stranger_YYYYMMDD_HHMMSS_*)
+    # since the date/time portion is zero-padded. Reversed here so the
+    # gallery shows NEWEST first — page2_analytics.py then slices to the
+    # first 3 for "3 latest stranger images in a row".
+    image_files = sorted(image_files, reverse=True)
 
     df      = _fetch_logs_df()
     denied  = df[df["auth_result"] == "Denied"] if not df.empty else pd.DataFrame()
