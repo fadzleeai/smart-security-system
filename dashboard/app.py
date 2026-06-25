@@ -244,16 +244,25 @@ st.markdown("<style>" + _palette_css + """
        is needed for the outer shrink-to-fit behavior at all. This CSS
        only adds the visible background/border decoration on top of
        that already-correct native sizing. */
-    .st-key-flow_main_steps {
-        background: var(--bg-card-alt) !important;
+    /* Page 3 pipeline diagram. BUGFIX confirmed via screenshot: the
+       wrapper's own background (var(--bg-card-alt)) was IDENTICAL to
+       each individual pill's background — same variable used in both
+       places — so the pills visually disappeared into their own
+       wrapper, showing as one solid rectangle with floating text
+       instead of distinct rounded pills. Also corrected per explicit
+       feedback: the two groups should NOT look stylistically different
+       from each other (no border/color distinction) — the original
+       screenshot annotation was purely about matching the OUTER height
+       to the title card's height above it, not about visually
+       differentiating "group of 7" from "the 8th step". Both wrappers
+       now use a transparent background — just a thin neutral outline,
+       sized to height/content only — so each pill's own background
+       (set in page3_logs.py) is what actually shows. */
+    .st-key-flow_main_steps, .st-key-flow_last_step {
+        background: transparent !important;
+        border: 1px solid var(--bg-card-alt) !important;
         border-radius: 14px !important;
         padding: 8px !important;
-    }
-    .st-key-flow_last_step {
-        background: var(--bg-page) !important;
-        border: 2px solid var(--accent-mid) !important;
-        border-radius: 14px !important;
-        padding: 4px !important;
     }
     div[data-testid="stExpander"] {
         background: var(--bg-card);
