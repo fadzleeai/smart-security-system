@@ -385,16 +385,18 @@ st.markdown("<style>" + _palette_css + """
         display: inline-block;
     }
 
-    /* CSS fallback for the SAME width fix on Streamlit's NATIVE
-       st.error/st.warning widget (the actual "Connection to Raspberry
-       Pi lost" banner is rendered via st.error(), not the custom
-       .alert-danger class above — confirmed by checking the actual
-       call site in page1_realtime.py). width="content" is passed
-       directly to st.error() as the primary fix; this CSS rule is a
-       safety net in case that parameter isn't recognized on whatever
-       Streamlit version ends up deployed. [data-testid="stAlert"] is
-       the current, stable testid for this native widget. */
-    [data-testid="stAlert"] {
+    /* THE fix for the "Connection to Raspberry Pi lost" banner width —
+       confirmed via a live crash (StreamlitInvalidWidthError) that
+       st.error()'s width parameter genuinely only accepts "stretch" or
+       a fixed pixel integer, NOT "content" — there is no Python-side
+       way to make st.error() size to its own content. This CSS rule is
+       therefore the ONLY fix, not a fallback. Targets both .stAlert
+       (the class form, confirmed via a real GitHub issue using this
+       exact selector to add borders to alert widgets) and
+       [data-testid="stAlert"] (the testid form) together, since I
+       could only directly confirm the class form this time — covering
+       both is safer than betting on just the unconfirmed one. */
+    .stAlert, [data-testid="stAlert"] {
         width: fit-content !important;
         max-width: 100% !important;
     }
