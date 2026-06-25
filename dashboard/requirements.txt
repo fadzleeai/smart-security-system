@@ -1,16 +1,10 @@
-# requirements.txt — STREAMLIT CLOUD SIDE
-# This is what Streamlit Community Cloud installs when it deploys your app.
-#
-# CHANGED vs original: added `requests` — needed by data_source.py to call
-# your Pi's API over the Cloudflare Tunnel URL.
+# requirements.txt - STREAMLIT CLOUD / CODESPACE SIDE
+# This installs everything app.py, page1_realtime.py, page2_analytics.py, page3_logs.py, alert_popup.py, and data_source.py actually import. Checked directly against the real import statements in each file.
+# streamlit>=1.37.0 - st.dialog (used by alert_popup.py) was introduced # in 1.37; the previous >=1.35.0 floor would not guarantee it exists.
+# Does NOT include main.py / pi_server.py dependencies (fastapi, uvicorn, # opencv-python, face_recognition, RPi.GPIO, etc) - those run on the Pi # only, never on Streamlit Cloud or in this Codespace dashboard environment.
 
-streamlit>=1.35.0
+streamlit>=1.37.0
+streamlit-autorefresh>=1.0.1
 pandas>=2.0.0
 plotly>=5.18.0
 requests>=2.31.0
-
-# ── No longer needed on the cloud side ────────────────────────────────────────
-# paho-mqtt, psutil, opencv-python, face_recognition, RPi.GPIO
-# — these stay on the PI ONLY (used by your detection backend, not by the
-#   cloud dashboard). Do not add them here, they would just slow down
-#   Streamlit Cloud's deploy and aren't used by data_source.py anymore.
