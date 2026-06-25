@@ -1,16 +1,19 @@
 # .streamlit/config.toml
 #
-# PURPOSE — Requirement 2 (overlap fix)
-#   Hides Streamlit's native top-right toolbar (the ⋮ menu, "Deploy" button,
-#   and related icons) entirely, so it stops visually overlapping the
-#   dashboard's metrics/panels on Page 1.
+# PURPOSE — Requirement 2 (overlap fix) + theme switching
+#   Hides Streamlit's developer-only toolbar options (Deploy button, "Run
+#   on save", etc.) while KEEPING the regular viewer Settings menu
+#   available — that Settings menu is where the light/dark theme
+#   switcher lives (Settings → Theme), which the redesign relies on.
 #
 #   toolbarMode options:
-#     "auto"     — default: shows ⋮ menu + Deploy button
-#     "viewer"   — hides Deploy button, keeps ⋮ menu
-#     "minimal"  — hides BOTH the ⋮ menu and Deploy button entirely
+#     "auto"     — default: shows dev options on localhost/Cloud-admin
+#     "viewer"   — hides DEVELOPER-only options, keeps viewer Settings menu
+#     "minimal"  — hides the ENTIRE menu, including Settings → Theme —
+#                  this was the original setting, but it accidentally
+#                  also hid the theme switcher needed for the redesign,
+#                  so it's been changed to "viewer" instead.
 #
-#   "minimal" is used here per the requirement to fully remove the menu bar.
 #   This does NOT affect the sidebar collapse/expand ">" chevron — that
 #   stays, since it's how users reopen the sidebar (see app.py caption).
 #
@@ -21,4 +24,58 @@
 # to take effect.
 
 [client]
-toolbarMode = "minimal"
+toolbarMode = "viewer"
+
+# ── Light & Dark themes ───────────────────────────────────────────────────────
+# Switch between them via Settings (⋮ menu) → Theme, once deployed.
+#
+# Streamlit's theme system only exposes a few fixed semantic color slots
+# (primaryColor, backgroundColor, secondaryBackgroundColor, textColor) —
+# not arbitrary custom variables. The brief specifies particular colors
+# for particular UI roles (alert banner, buttons, card titles, status
+# tags) that go beyond what these slots alone can express — those more
+# specific per-element rules are handled with custom CSS in app.py's
+# style block, layered on top of this base palette, not instead of it.
+
+# ── Light & Dark themes ───────────────────────────────────────────────────────
+# Switch between them via Settings (⋮ menu) → Theme, once deployed.
+#
+# Streamlit's theme system only exposes a few fixed semantic color slots
+# (primaryColor, backgroundColor, secondaryBackgroundColor, textColor) —
+# not arbitrary custom variables. The brief specifies particular colors
+# for particular UI roles (alert banner, buttons, card titles, status
+# tags) that go beyond what these slots alone can express — those more
+# specific per-element rules are handled with custom CSS in app.py's
+# style block, layered on top of this base palette, not instead of it.
+#
+# KNOWN STREAMLIT LIMITATION (confirmed via streamlit/streamlit#13280):
+# a full browser page reload (F5 / closing+reopening the tab) resets the
+# selected theme back to this default — normal reruns from clicking a
+# button do NOT have this problem, only actual page reloads do. Setting
+# base="light" explicitly (rather than relying on Streamlit's implicit
+# light default) means a reload always lands somewhere intentional, not
+# an unstyled fallback.
+[theme]
+base = "light"
+
+[theme.light]
+# Background: softest color in the palette (#BFDFD2, sage) — sits behind
+# every card, giving the "soft layered" card-based look the brief asked for.
+backgroundColor = "#F4F9F6"
+# Cards/sidebar use a slightly deeper sage so they read as a distinct layer
+# floating above the page background, not flat with it.
+secondaryBackgroundColor = "#BFDFD2"
+# Primary color (used for buttons, sliders, etc. across base Streamlit
+# widgets) — the deeper of the two teals specified for "core action buttons".
+primaryColor = "#4198AC"
+textColor = "#1F2D2A"
+
+[theme.dark]
+# Deepest navy in the dark palette — the base "background" role.
+backgroundColor = "#344364"
+# Mid-tone blue-gray — cards read as a lighter layer floating on the navy.
+secondaryBackgroundColor = "#4f6783"
+# Brightest, most saturated color in the dark palette — used for the
+# "glowing button" effect the brief specifically asked for.
+primaryColor = "#aee3eb"
+textColor = "#E8F4F7"
