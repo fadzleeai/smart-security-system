@@ -164,7 +164,8 @@ def _render_flow():
                 f'border-radius:20px;padding:8px 10px;font-size:0.7rem;font-weight:600;'
                 f'text-align:center;line-height:1.3;min-height:48px;'
                 f'display:flex;align-items:center;justify-content:center;'
-                f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;">'
+                f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;'
+                f'width:fit-content;">'
                 f'{last_step}</div>',
                 unsafe_allow_html=True,
             )
