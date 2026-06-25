@@ -176,7 +176,23 @@ st.markdown("<style>" + _palette_css + """
        same way. The :not() clause excludes any stColumn whose nearest
        stColumn ancestor IS itself a stColumn — i.e. nested columns are
        deliberately skipped, achieved purely in CSS rather than
-       restructuring any of the already-tested page Python code. */
+       restructuring any of the already-tested page Python code.
+
+       BUGFIX (asymmetric bottom padding): confirmed via screenshot that
+       cards in the same row (e.g. "Smart event panel" next to "Door
+       status") had excessive empty space below their content, but tight
+       spacing above it — not a padding problem, a STRETCHING one.
+       st.columns() generates a flexbox row (stHorizontalBlock), and
+       flexbox's default align-items:stretch makes every column in that
+       row match the height of its TALLEST sibling — so a shorter
+       column's card gets stretched well past its own content, with all
+       the extra space landing at the bottom (since content is top-
+       aligned by default). align-self:flex-start on the column itself
+       (the actual flex item) opts it out of that stretch, letting each
+       card size to its own real content height instead. */
+    div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) {
+        align-self: flex-start;
+    }
     div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div {
         background: var(--bg-card);
         border-radius: 18px;
@@ -199,7 +215,18 @@ st.markdown("<style>" + _palette_css + """
        only one small button — confirmed via screenshot showing an
        oversized box around "Retry". Wrapped in st.container(key=
        "retry_btn_container") specifically so this CSS can exclude just
-       that one instance, without affecting any other column. */
+       that one instance, without affecting any other column.
+
+       Second bugfix, same root cause as the main card stretching issue:
+       even with background/padding zeroed out above, the COLUMN ITSELF
+       (the flex item) was still being stretched to match the taller
+       alert-banner column beside it in the same row — confirmed via a
+       follow-up screenshot showing the transparent box still occupying
+       the full row height. align-self:flex-start on the column (not
+       just its keyed child) opts it out of that stretch too. */
+    div[data-testid="stColumn"]:has(.st-key-retry_btn_container) {
+        align-self: flex-start;
+    }
     .st-key-retry_btn_container {
         background: transparent !important;
         box-shadow: none !important;
