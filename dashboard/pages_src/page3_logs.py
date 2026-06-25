@@ -85,10 +85,10 @@ FLOW_STEPS = [
     "Camera activated",
     "Face recognition",
     "Decision logic",
-    "Save visitor image",
+    "Save stranger image",
     "Write security_logs.csv",
-    "Publish MQTT JSON",
-    "Streamlit updates",
+    "Pi API serves /logs",
+    "Streamlit fetches via tunnel",
 ]
 
 def _render_flow():
