@@ -12,7 +12,24 @@ from data_source import get_today_summary, get_activity_timeline, get_stranger_g
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _badge(text: str, style: str) -> str:
-    return f'<span class="badge badge-{style}">{text}</span>'
+    """
+    Same sibling-shadow structure as page1_realtime.py's _badge() — kept
+    consistent across both files since they're duplicate copies of the
+    same helper, not shared via import. The outer wrapper (inline-block,
+    width:fit-content) determines the real footprint independent of any
+    stretched parent — see page1_realtime.py's _badge() docstring for
+    the full reasoning on why this is a sibling element, not a
+    ::before pseudo-element.
+    """
+    return (
+        f'<span style="display:inline-block;width:fit-content;position:relative;'
+        f'margin:2px 8px 2px 2px;">'
+        f'<span style="position:absolute;top:3px;left:3px;right:-3px;bottom:-3px;'
+        f'background:var(--bg-card-alt);border-radius:999px;z-index:0;"></span>'
+        f'<span class="badge badge-{style}" style="position:relative;z-index:1;'
+        f'display:inline-block;white-space:nowrap;">{text}</span>'
+        f'</span>'
+    )
 
 
 def _timeline_dot(result: str, threat: str) -> str:
