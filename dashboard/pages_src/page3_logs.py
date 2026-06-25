@@ -132,12 +132,26 @@ def _render_flow():
         bg    = "var(--accent-bright)" if is_last else "var(--bg-card-alt)"
         color = "var(--text-on-accent)" if is_last else "var(--text-primary)"
         with col:
+            # BUGFIX, per explicit feedback: white-space:nowrap +
+            # overflow:hidden + text-overflow:ellipsis (added in an
+            # earlier pass to fix vertical centering) was confirmed via
+            # screenshot to be truncating/cutting words mid-letter
+            # ("Streamlit" -> "amlit...", "tunnel" -> "tu") instead of
+            # wrapping cleanly. Reverted to allow multi-line wrapping
+            # instead, using the exact properties requested: white-space:
+            # normal lets it wrap across multiple lines; word-break:
+            # keep-all and overflow-wrap: break-word together ensure a
+            # whole word moves to the next line as a unit rather than
+            # ANY single letter being orphaned mid-word. No fixed width
+            # set on the pill itself — it sizes from its column, and
+            # min-height (not a fixed height) lets it grow taller for
+            # longer phrases instead of clipping.
             st.markdown(
                 f'<div style="background:{bg};color:{color};border-radius:20px;'
                 f'padding:8px 10px;font-size:0.7rem;font-weight:600;'
                 f'text-align:center;line-height:1.3;min-height:48px;'
                 f'display:flex;align-items:center;justify-content:center;'
-                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;">'
                 f'{step}</div>',
                 unsafe_allow_html=True,
             )
