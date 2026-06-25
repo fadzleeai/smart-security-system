@@ -6,7 +6,7 @@ Page 2 — Visitor analytics & stranger gallery
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from data_source import get_today_summary, get_activity_timeline, get_stranger_gallery, THEME_COLORS
+from data_source import get_today_summary, get_activity_timeline, get_stranger_gallery
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -102,7 +102,16 @@ def _stranger_card(item: dict):
     # need their own dedicated dark-mode redesign pass, flagged but
     # deliberately not done here to avoid scope creep beyond today's
     # specific padding/contrast/font-size feedback.
-    label_color = "#991b1b" if item["is_suspicious"] else THEME_COLORS["text_secondary_on_card"]
+    #
+    # BUGFIX: label_color used to read THEME_COLORS (Python-side
+    # st.context.theme.type detection), confirmed unreliable per
+    # Streamlit's own docs on first load / theme changes. Suspicious
+    # case keeps its own fixed red (not theme-dependent at all); the
+    # non-suspicious case now uses a CSS class name instead of an
+    # inline hex value, so the actual color is resolved reliably by
+    # the browser via var(--text-secondary-on-card).
+    label_class = "" if item["is_suspicious"] else "label-secondary"
+    label_color_inline = "color:#991b1b;" if item["is_suspicious"] else ""
 
     # Card wrapper (border/background/label) stays as styled HTML, but the
     # actual photo now renders via st.image() instead of a placeholder
@@ -126,8 +135,8 @@ def _stranger_card(item: dict):
                     unsafe_allow_html=True)
 
     st.markdown(f"""
-      <div style="font-size:0.78rem;font-weight:600;color:{label_color}">{item['label']}</div>
-      <div style="font-size:0.72rem;color:{THEME_COLORS['text_secondary_on_card']};margin-top:2px;margin-bottom:8px">
+      <div class="{label_class}" style="font-size:0.78rem;font-weight:600;{label_color_inline}">{item['label']}</div>
+      <div class="label-secondary" style="font-size:0.72rem;margin-top:2px;margin-bottom:8px">
         {item['time']} &bull; {item['visits']} visit(s)
       </div>
     </div>
@@ -175,9 +184,9 @@ def render():
             threat_b = _threat_badge(item["threat"])
 
             st.markdown(f"""
-            <div style="display:flex;gap:10px;align-items:flex-start;
-                        padding:8px 0;border-bottom:1px solid {THEME_COLORS['track_bg']}">
-              <span style="font-size:0.75rem;color:{THEME_COLORS['text_secondary_on_card']};min-width:62px;padding-top:3px">
+            <div class="divider-border" style="display:flex;gap:10px;align-items:flex-start;
+                        padding:8px 0;">
+              <span class="label-secondary" style="font-size:0.75rem;min-width:62px;padding-top:3px">
                 {item['time']}
               </span>
               {dot}
@@ -185,7 +194,7 @@ def render():
                 <div style="font-size:0.83rem;font-weight:500">
                   {item['visitor']} &nbsp; {result_b} &nbsp; {threat_b}
                 </div>
-                <div style="font-size:0.75rem;color:{THEME_COLORS['text_secondary_on_card']};margin-top:2px">
+                <div class="label-secondary" style="font-size:0.75rem;margin-top:2px">
                   {item['note']}
                 </div>
               </div>
@@ -212,10 +221,10 @@ def render():
                     # Fewer than 3 strangers exist — show an empty slot
                     # rather than stretching 1-2 cards to fill the row.
                     st.markdown(
-                        f'<div style="border:1px dashed {THEME_COLORS["track_bg"]}; border-radius:8px; '
-                        f'padding:20px; text-align:center; color:{THEME_COLORS["text_secondary_on_card"]}; min-height:160px; '
-                        f'display:flex;align-items:center;justify-content:center">'
-                        f'<span style="font-size:0.78rem">No more strangers</span></div>',
+                        '<div class="divider-border label-secondary" style="border:1px dashed; border-radius:8px; '
+                        'padding:20px; text-align:center; min-height:160px; '
+                        'display:flex;align-items:center;justify-content:center">'
+                        '<span style="font-size:0.78rem">No more strangers</span></div>',
                         unsafe_allow_html=True,
                     )
 
