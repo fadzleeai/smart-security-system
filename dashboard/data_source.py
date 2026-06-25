@@ -2,11 +2,16 @@
 data_source.py — REAL DATA VERSION (Pi over Cloudflare Tunnel)
 
 ARCHITECTURE
-    Runs on your LAPTOP (Streamlit dashboard).
+    Runs on Streamlit Cloud (UTC server time — see PI_TIMEZONE below for
+    why that matters for "today" calculations).
     Fetches data from Raspberry Pi via Cloudflare Tunnel public URL.
 
-    Pi (security_logs.csv, strangers/, state)
-        → src/webapp.py (Flask, port 5000)
+    Pi (security_logs.csv, strangers/, state — written in Malaysia local
+    time, confirmed via the Pi's system clock)
+        → pi_server.py (FastAPI, port 8000) — confirmed live via
+          systemctl status pi-api.service; an earlier docstring here
+          incorrectly named src/webapp.py (Flask) as the backend, which
+          was never actually confirmed running
         → Cloudflare Tunnel
         → THIS FILE fetches over HTTPS
         → page1/2/3 render() functions (unchanged)
@@ -24,6 +29,7 @@ import requests
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 try:
@@ -32,6 +38,13 @@ except Exception:
     PI_API_URL = "https://utmiotsecurityg4.dpdns.org"   # ← your tunnel URL
 
 REQUEST_TIMEOUT = 5   # seconds — fail fast, don't freeze the dashboard
+
+# Confirmed: the Pi's system clock is set to Malaysia time, and every CSV
+# timestamp is written via the Pi's local time.strftime() — NOT UTC.
+# Streamlit Cloud's servers run in UTC. Without this, "today" in
+# get_today_summary() would be wrong for several hours every day (e.g. a
+# 1am Malaysia-time event is still "yesterday" in UTC until ~5pm UTC).
+PI_TIMEZONE = ZoneInfo("Asia/Kuala_Lumpur")
 
 # ── Threat level mapping ──────────────────────────────────────────────────────
 # Pi writes: Pending / Low / Medium / High
@@ -359,6 +372,18 @@ def tag_stranger(filename: str, label: str) -> dict:
         )
         resp.raise_for_status()
         return resp.json()
+    except requests.exceptions.HTTPError as e:
+        # The Pi WAS reached — it just returned an error status (e.g. 404
+        # if the photo was already moved/deleted). Surfacing FastAPI's
+        # actual detail here, since "Could not reach Pi" would be
+        # actively misleading for this case — the connection is fine,
+        # something else is wrong (most likely: stale popup referencing
+        # a photo that's already been handled or removed).
+        try:
+            detail = resp.json().get("detail", str(e))
+        except Exception:
+            detail = str(e)
+        return {"success": False, "message": f"Pi rejected the request: {detail}"}
     except requests.exceptions.RequestException as e:
         return {"success": False, "message": f"Could not reach Pi: {e}"}
 
@@ -430,9 +455,17 @@ def get_today_summary() -> dict:
     if df.empty:
         return empty
 
-    # Filter to today
+    # Filter to today — IN MALAYSIA TIME, since that's what every CSV
+    # timestamp actually represents (the Pi's local clock), not UTC.
+    # datetime.now(PI_TIMEZONE).date() gives "today" as the Pi would
+    # understand it; comparing that against the naive (timezone-less)
+    # CSV timestamps is correct here specifically because both sides
+    # are already in the same local time, just one has tz info attached
+    # and one doesn't — attaching tz to the CSV side would be wrong since
+    # pandas would otherwise assume those naive timestamps are UTC.
     try:
-        today_mask = df["timestamp"].dt.date == datetime.today().date()
+        today_in_malaysia = datetime.now(PI_TIMEZONE).date()
+        today_mask = df["timestamp"].dt.date == today_in_malaysia
         today      = df[today_mask]
     except Exception:
         return empty
