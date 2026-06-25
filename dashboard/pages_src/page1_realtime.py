@@ -25,7 +25,27 @@ except Exception:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _badge(text: str, style: str) -> str:
-    return f'<span class="badge badge-{style}">{text}</span>'
+    """
+    Case B structure: outer wrapper (inline-block, width:fit-content) is
+    what actually determines the footprint — both the shadow box and the
+    real content box size relative to THIS wrapper, not to anything
+    upstream that might be stretched (e.g. a Streamlit column). This is
+    a genuine sibling shadow element, not a ::before pseudo-element glued
+    to the content box itself — that was tried earlier and confirmed
+    broken, since a pseudo-element mechanically cannot be smaller than
+    its own parent, so if the parent were ever stretched, the "shadow"
+    would just inherit that same oversized footprint instead of hugging
+    the real content.
+    """
+    return (
+        f'<span style="display:inline-block;width:fit-content;position:relative;'
+        f'margin:2px 8px 2px 2px;">'
+        f'<span style="position:absolute;top:3px;left:3px;right:-3px;bottom:-3px;'
+        f'background:var(--bg-card-alt);border-radius:999px;z-index:0;"></span>'
+        f'<span class="badge badge-{style}" style="position:relative;z-index:1;'
+        f'display:inline-block;white-space:nowrap;">{text}</span>'
+        f'</span>'
+    )
 
 def _dot(style: str) -> str:
     colors = {"green": "#10b981", "red": "#ef4444", "amber": "#f59e0b", "gray": "#9ca3af"}
