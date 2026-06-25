@@ -7,7 +7,7 @@ unsafe_allow_html=True. Door illustration uses pure CSS divs instead.
 """
 
 import streamlit as st
-from data_source import get_system_state, get_ram_usage, stop_alarm, get_alarm_status
+from data_source import get_system_state, get_ram_usage, stop_alarm, get_alarm_status, is_pi_reachable
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -30,7 +30,14 @@ def _threat_badge(level: str) -> str:
     m = {"None": "gray", "Warning": "amber", "Suspicious": "red"}
     return _badge(level, m.get(level, "gray"))
 
-def _sensor_badge(ok: bool) -> str:
+def _sensor_badge(ok: bool, offline: bool = False) -> str:
+    """
+    offline=True overrides ok entirely — when the Pi itself is unreachable,
+    we genuinely don't know if a sensor is "Working" or "Fault", so showing
+    either would be a guess. "Offline" (gray) is the honest answer.
+    """
+    if offline:
+        return _badge("Offline", "gray")
     return _badge("Working", "green") if ok else _badge("⚠ Fault", "red")
 
 def _door_status_badge(door_sensor_ok: bool, is_open: bool) -> str:
@@ -131,6 +138,24 @@ def render():
     state = get_system_state()
     ram   = get_ram_usage()
 
+    # ── Pi connection status (Issue 1 fix) ────────────────────────────────────
+    # state["pi_reachable"] comes from data_source.is_pi_reachable(), checked
+    # independently of any individual sensor field — so this is true "can we
+    # reach the Pi at all" status, not inferred from possibly-stale defaults.
+    if not state["pi_reachable"]:
+        col_msg, col_retry = st.columns([5, 1])
+        with col_msg:
+            st.error(
+                "🔌 Connection to Raspberry Pi lost. Sensor readings below are "
+                "unknown, not necessarily faulty. Check the tunnel or retry.",
+                icon="🚨",
+            )
+        with col_retry:
+            st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+            if st.button("🔄 Retry", key="pi_retry", use_container_width=True):
+                is_pi_reachable.clear()  # drop the cached "unreachable" result
+                st.rerun()
+
     # ── Alarm dismiss tracking ────────────────────────────────────────────────
     # session_state gives an immediate UI response (banner hides the moment
     # you click). get_alarm_status() also checks the Pi directly, so the
@@ -168,7 +193,8 @@ def render():
         st.markdown("##### Smart event panel")
 
         rows = [
-            ("System status",    _dot("green") + "Monitoring"),
+            ("System status",    _dot("green") + "Monitoring" if state["pi_reachable"]
+                                 else _dot("red") + "Disconnected"),
             ("Camera",           _dot("green" if state["camera_status"] == "Active" else "gray")
                                  + state["camera_status"]),
             ("Motion",           _dot("amber" if state["motion_detected"] else "gray")
@@ -264,7 +290,8 @@ def render():
             c1, c2 = st.columns([3, 1])
             c1.markdown(f'<span style="font-size:0.82rem">{name}</span>',
                         unsafe_allow_html=True)
-            c2.markdown(_sensor_badge(ok), unsafe_allow_html=True)
+            c2.markdown(_sensor_badge(ok, offline=not state["pi_reachable"]),
+                        unsafe_allow_html=True)
 
         st.markdown("")
         st.markdown("##### Pi RAM usage")
