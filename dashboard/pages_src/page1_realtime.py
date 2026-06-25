@@ -7,7 +7,7 @@ unsafe_allow_html=True. Door illustration uses pure CSS divs instead.
 """
 
 import streamlit as st
-from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable
+from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable, THEME_COLORS
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -115,10 +115,10 @@ def _ram_bar(label: str, used_mb: int, total_mb: int, color: str = "#3b82f6"):
     st.markdown(f"""
     <div style="margin-bottom:7px">
       <div style="display:flex;justify-content:space-between;
-                  font-size:0.74rem;color:#6b7280;margin-bottom:2px">
+                  font-size:0.74rem;color:{THEME_COLORS['text_secondary_on_card']};margin-bottom:2px">
         <span>{label}</span><span>{used_mb} MB</span>
       </div>
-      <div style="background:#f3f4f6;border-radius:4px;height:7px;overflow:hidden">
+      <div style="background:{THEME_COLORS['track_bg']};border-radius:4px;height:7px;overflow:hidden">
         <div style="width:{pct:.0f}%;height:100%;background:{bar_color};
                     border-radius:4px;"></div>
       </div>
@@ -207,7 +207,7 @@ def render():
 
         for key, val in rows:
             c1, c2 = st.columns([2, 3])
-            c1.markdown(f'<span style="font-size:0.82rem;color:#6b7280">{key}</span>',
+            c1.markdown(f'<span style="font-size:0.82rem;color:{THEME_COLORS["text_secondary_on_card"]}">{key}</span>',
                         unsafe_allow_html=True)
             c2.markdown(f'<span style="font-size:0.82rem;font-weight:500">{val}</span>',
                         unsafe_allow_html=True)
