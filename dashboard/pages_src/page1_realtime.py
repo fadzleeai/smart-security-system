@@ -7,7 +7,7 @@ unsafe_allow_html=True. Door illustration uses pure CSS divs instead.
 """
 
 import streamlit as st
-from data_source import get_system_state, get_ram_usage, stop_alarm, get_alarm_status, is_pi_reachable
+from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -335,24 +335,9 @@ def render():
         elif pct <= 50:
             st.success("✓ RAM healthy — within ≤1 GB Streamlit target")
 
-    # ── Stop alarm ────────────────────────────────────────────────────────────
-    st.markdown("---")
-
-    # This now actually calls the Pi via HTTP (through Cloudflare Tunnel),
-    # not MQTT — see stop_alarm() in data_source.py. The button only hides
-    # the banner / sends the dismiss request; your detection backend must
-    # separately check for the dismiss flag to silence a physical buzzer —
-    # see check_alarm_dismiss_example() in pi_server.py.
-    btn_disabled = is_dismissed or state["threat_level"] not in ("Suspicious", "Warning")
-    btn_label = "🔕  Alarm already stopped" if is_dismissed else "🔕  Stop alarm / deactivate alert"
-
-    if st.button(btn_label, type="primary", use_container_width=True, disabled=btn_disabled):
-        result = stop_alarm()
-        if result["success"]:
-            st.session_state["alarm_dismissed_locally"] = True
-            st.success(result["message"])
-            st.rerun()
-        else:
-            st.error(result["message"])
-
-    st.caption("Sends a stop request: Streamlit → Cloudflare Tunnel → Raspberry Pi (HTTP, not MQTT)")
+    # NOTE: The Stop Alarm button that used to live here was removed —
+    # that action now lives in the global alert popup (alert_popup.py),
+    # which appears automatically regardless of which page is open,
+    # rather than requiring a visit to Page 1 specifically. The Suspicious/
+    # Warning banner near the top of this page still reflects dismissal
+    # state via is_dismissed (set above), so that part is unchanged.
