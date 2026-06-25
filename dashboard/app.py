@@ -73,8 +73,13 @@ else:
     """
 
 # ── Global CSS ────────────────────────────────────────────────────────────────
-st.markdown(_palette_css + """
-<style>
+# BUGFIX: _palette_css's :root{...} block must be INSIDE the <style> tag.
+# Previously the <style> tag was only opened in the second string below,
+# AFTER _palette_css was concatenated in front of it — meaning :root{...}
+# sat outside any <style> tag entirely and rendered as literal visible
+# page text (confirmed from a live screenshot showing the raw CSS as
+# text content at the top of the page, not applied as styling at all).
+st.markdown("<style>" + _palette_css + """
     /* Main content padding — top increased from 1rem to clear Streamlit
        Cloud's platform bar (Share/Star/Edit/GitHub/⋮), which sits in a
        fixed strip above the app and isn't controlled by this app's code. */
