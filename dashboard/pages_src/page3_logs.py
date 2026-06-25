@@ -8,7 +8,7 @@ from datetime import datetime
 
 import streamlit as st
 import pandas as pd
-from data_source import get_full_logs
+from data_source import get_full_logs, refresh_logs
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,12 +109,23 @@ def _render_flow():
 # ── Main render ───────────────────────────────────────────────────────────────
 
 def render():
+    # ── Filters ───────────────────────────────────────────────────────────────
+    # ISSUE 3 FIX — Page 3 stagnation. get_full_logs() is backed by a 5s
+    # @st.cache_data, so it only goes stale *between* reruns — but Streamlit
+    # never reruns on its own without user interaction. This button gives
+    # an explicit, low-cost way to force a fresh fetch right now, instead
+    # of clicking elsewhere in the sidebar as a workaround.
+    col_title, col_refresh = st.columns([5, 1])
+    with col_title:
+        st.markdown("##### Full security logs")
+    with col_refresh:
+        if st.button("🔄 Refresh Logs", key="refresh_logs_btn", use_container_width=True):
+            refresh_logs()
+            st.rerun()
+
     # get_full_logs() pulls real rows from the Pi via /logs over the
     # Cloudflare tunnel (see data_source.py). No mock data here.
     df = get_full_logs()
-
-    # ── Filters ───────────────────────────────────────────────────────────────
-    st.markdown("##### Full security logs")
 
     fc1, fc2, fc3 = st.columns([2, 2, 2])
 
