@@ -299,13 +299,12 @@ def get_ram_usage() -> dict:
 def stop_alarm() -> dict:
     """
     Called when dashboard Stop Alarm button is clicked.
-    POSTs to Pi /alarm/stop endpoint.
-
-    # ── REAL DATA SWAP ──────────────────────────────────────────────────────
-    # When MQTT is ready, replace this with:
-    #   import paho.mqtt.publish as publish
-    #   publish.single("security/alarm/stop", "1", hostname=PI_IP)
-    # ────────────────────────────────────────────────────────────────────────
+    POSTs to Pi /alarm/stop endpoint over HTTP, through the Cloudflare
+    Tunnel — this IS the real, final implementation, not a placeholder.
+    MQTT was never built for this project and there's no plan to add it;
+    an earlier version of this docstring suggested swapping to MQTT later,
+    which was leftover from the original mock-dashboard design and no
+    longer applies.
     """
     try:
         resp = requests.post(
