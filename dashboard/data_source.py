@@ -46,6 +46,37 @@ REQUEST_TIMEOUT = 5   # seconds — fail fast, don't freeze the dashboard
 # 1am Malaysia-time event is still "yesterday" in UTC until ~5pm UTC).
 PI_TIMEZONE = ZoneInfo("Asia/Kuala_Lumpur")
 
+# ── Theme-aware inline colors ─────────────────────────────────────────────────
+# BUGFIX: several inline-styled HTML strings across page1/2/3_*.py had
+# hardcoded hex colors (e.g. color:#6b7280) baked directly into the
+# Python f-string — confirmed via screenshot showing labels like "System
+# status", "PIR motion sensor", and the RAM bar labels rendering nearly
+# invisible against the dark theme's navy card background. Inline
+# style="" attributes can't read the var(--xxx) CSS custom properties
+# app.py defines, since those are resolved by the browser at render
+# time, not visible to a plain Python string — so this needed its own
+# fix, separate from (and in addition to) the CSS variable system.
+# Centralized HERE rather than duplicated in each page file, and kept
+# numerically IN SYNC with app.py's CSS variables (same active-theme
+# detection, same hex values) so the two systems never drift apart.
+try:
+    _THEME_TYPE = st.context.theme.type
+except Exception:
+    _THEME_TYPE = "light"
+
+if _THEME_TYPE == "dark":
+    THEME_COLORS = {
+        "text_secondary_on_card": "#E8F4F7",  # 5.20:1 contrast on dark cards — see app.py for the full calculation
+        "track_bg":               "#344364",  # RAM bar empty track — dark page bg, not light gray
+        "card_bg":                "#4f6783",
+    }
+else:
+    THEME_COLORS = {
+        "text_secondary_on_card": "#4A5C57",  # 7.10:1 contrast on white cards
+        "track_bg":               "#E5EDE9",  # light, muted track — close to original #f3f4f6 intent
+        "card_bg":                "#FFFFFF",
+    }
+
 # ── Threat level mapping ──────────────────────────────────────────────────────
 # Pi writes: Pending / Low / Medium / High
 # Dashboard shows: None / Warning / Suspicious
