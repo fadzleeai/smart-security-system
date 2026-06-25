@@ -363,12 +363,13 @@ st.markdown("<style>" + _palette_css + """
     .badge-blue  { background: var(--bg-card-alt);   color: var(--accent-mid); }
     .badge-gray  { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
 
-    /* Main alert banner — brief: "the MOST attention-grabbing color,
-       white text, must be impossible to miss at first glance". This is
-       deliberately the ONLY place --alert-bg appears as a full-width
-       background (not just a badge accent), so it stays unmistakably
-       the loudest thing on the page, matching the brief's visual
-       hierarchy rule precisely. */
+    /* Main alert banner. UPDATED per explicit feedback: previously
+       deliberately full-width per the design brief's "impossible to
+       miss" requirement — but the person has now explicitly asked for
+       it to wrap its own content instead, confirmed via screenshot
+       showing it spanning the entire row. width:fit-content makes the
+       box only as wide as its actual text, same approach as a standard
+       inline error message. */
     .alert-danger, .alert-warning {
         background: var(--alert-bg);
         color: var(--alert-text);
@@ -379,6 +380,23 @@ st.markdown("<style>" + _palette_css + """
         font-weight: 700;
         margin-bottom: 12px;
         box-shadow: var(--card-shadow);
+        width: fit-content;
+        max-width: 100%;
+        display: inline-block;
+    }
+
+    /* CSS fallback for the SAME width fix on Streamlit's NATIVE
+       st.error/st.warning widget (the actual "Connection to Raspberry
+       Pi lost" banner is rendered via st.error(), not the custom
+       .alert-danger class above — confirmed by checking the actual
+       call site in page1_realtime.py). width="content" is passed
+       directly to st.error() as the primary fix; this CSS rule is a
+       safety net in case that parameter isn't recognized on whatever
+       Streamlit version ends up deployed. [data-testid="stAlert"] is
+       the current, stable testid for this native widget. */
+    [data-testid="stAlert"] {
+        width: fit-content !important;
+        max-width: 100% !important;
     }
 
     /* Image placeholder */
