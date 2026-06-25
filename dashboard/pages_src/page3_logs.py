@@ -168,7 +168,7 @@ def _render_flow():
                     unsafe_allow_html=True,
                 )
 
-        with st.container(key="flow_last_step"):
+        with st.container(key="flow_last_step", horizontal=True):
             st.markdown(
                 f'<div style="background:var(--accent-bright);color:var(--text-on-accent);'
                 f'border-radius:20px;padding:8px 10px;font-size:0.7rem;font-weight:600;'
