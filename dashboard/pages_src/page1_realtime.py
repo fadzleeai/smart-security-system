@@ -250,23 +250,31 @@ def render():
     with col_img:
         st.markdown("##### Latest visitor capture")
 
-        # ── REAL DATA SWAP ──────────────────────────────────────────────────
-        # Replace placeholder with:
-        #   import os
-        #   if state["last_visitor_img"] and os.path.exists(state["last_visitor_img"]):
-        #       st.image(state["last_visitor_img"], use_column_width=True)
-        # state["last_visitor_img"] is the file path from MQTT payload.
-        # The image file itself is read from the Pi shared folder via samba.
-        # ────────────────────────────────────────────────────────────────────
+        # Shows the latest visitor capture regardless of Authorized/Denied —
+        # state["last_visitor_img"] is already a full URL (built by
+        # _pi_image_url() in data_source.py), not a local file path, so no
+        # os.path.exists() check applies here — that was leftover from the
+        # old Samba-share era. st.image() can still fail at render time if
+        # the URL 404s (e.g. file genuinely missing on the Pi), so that's
+        # caught explicitly rather than crashing the page.
         if state["last_visitor_img"]:
-            st.image(state["last_visitor_img"], use_column_width=True)
+            try:
+                st.image(state["last_visitor_img"], use_container_width=True)
+            except Exception:
+                st.markdown("""
+                <div class="img-placeholder">
+                  ⚠️<br>
+                  <span style="font-size:0.74rem;margin-top:4px;display:block">
+                    Image could not be loaded
+                  </span>
+                </div>
+                """, unsafe_allow_html=True)
         else:
             st.markdown("""
             <div class="img-placeholder">
               👤<br>
               <span style="font-size:0.74rem;margin-top:4px;display:block">
-                Unknown visitor — 09:14 AM<br>
-                <em>images/stranger_003.jpg</em>
+                No visitor image available yet
               </span>
             </div>
             """, unsafe_allow_html=True)
