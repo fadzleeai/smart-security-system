@@ -147,13 +147,23 @@ def _render_flow():
     with st.container(horizontal=True):
         with st.container(key="flow_main_steps", horizontal=True):
             for step in main_steps:
+                # margin-bottom added per explicit feedback: keep each
+                # pill's own white card (the major-panel card CSS in
+                # app.py already gives every column this background —
+                # confirmed this is wanted, not a bug), just expand the
+                # white space specifically BELOW the green pill. Scoped
+                # to margin on the pill itself, not the shared global
+                # card-padding rule in app.py, since that rule is used
+                # by every major panel across the whole dashboard and
+                # changing it there would affect things well beyond
+                # this one pipeline diagram.
                 st.markdown(
                     f'<div style="background:var(--bg-card-alt);color:var(--text-primary);'
                     f'border-radius:20px;padding:8px 10px;font-size:0.7rem;font-weight:600;'
                     f'text-align:center;line-height:1.3;min-height:48px;'
                     f'display:flex;align-items:center;justify-content:center;'
                     f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;'
-                    f'width:fit-content;">'
+                    f'width:fit-content;margin-bottom:16px;">'
                     f'{step}</div>',
                     unsafe_allow_html=True,
                 )
@@ -165,7 +175,7 @@ def _render_flow():
                 f'text-align:center;line-height:1.3;min-height:48px;'
                 f'display:flex;align-items:center;justify-content:center;'
                 f'white-space:normal;word-break:keep-all;overflow-wrap:break-word;'
-                f'width:fit-content;">'
+                f'width:fit-content;margin-bottom:16px;">'
                 f'{last_step}</div>',
                 unsafe_allow_html=True,
             )
