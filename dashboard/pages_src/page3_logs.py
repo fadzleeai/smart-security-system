@@ -10,6 +10,18 @@ import streamlit as st
 import pandas as pd
 from data_source import get_full_logs, refresh_logs, PI_TIMEZONE
 
+# CORRECTED finding: st.dataframe() has a transparent background by
+# default and follows the app's actual theme (confirmed: a Streamlit
+# forum post explicitly notes "the standard st.dataframes have a
+# transparent background" — not an independently-fixed light background
+# as initially assumed). So the table header's hardcoded #6b7280 text
+# and #e5e7eb border genuinely do need theme-aware values, same as every
+# other hardcoded-gray fix elsewhere in this app.
+try:
+    _table_theme = st.context.theme.type
+except Exception:
+    _table_theme = "light"
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -30,7 +42,15 @@ def _colour_threat(val: str) -> str:
         return "background-color:#fee2e2; color:#991b1b; font-weight:600"
     if val == "Warning":
         return "background-color:#fef3c7; color:#92400e; font-weight:600"
-    return "color:#6b7280"
+    # NOTE: "None" threat level falls through to here with no background
+    # pairing at all — genuinely a gap, in the same category as the other
+    # hardcoded-gray fixes elsewhere. CORRECTED from an earlier assumption:
+    # st.dataframe() is confirmed to have a transparent background by
+    # default (not an independent fixed-light background) — it follows
+    # the app's actual theme. So a plain "color:#6b7280" genuinely would
+    # look wrong specifically in dark mode. Returning "" (inherit) avoids
+    # guessing a fixed text color that might clash with either theme.
+    return ""
 
 
 def _style_df(df: pd.DataFrame):
@@ -57,12 +77,15 @@ def _style_df(df: pd.DataFrame):
             .applymap(_colour_threat, subset=["Threat"])
         )
 
+    header_text_color = "#9bcbd7" if _table_theme == "dark" else "#6b7280"
+    header_border     = "#81a8b9" if _table_theme == "dark" else "#e5e7eb"
+
     return styler.set_table_styles([
         {"selector": "th",
          "props": [("font-size", "0.78rem"),
-                   ("color", "#6b7280"),
+                   ("color", header_text_color),
                    ("font-weight", "500"),
-                   ("border-bottom", "1px solid #e5e7eb")]},
+                   ("border-bottom", f"1px solid {header_border}")]},
         {"selector": "td",
          "props": [("font-size", "0.8rem"),
                    ("padding", "6px 10px")]},
