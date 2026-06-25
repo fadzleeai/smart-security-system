@@ -21,10 +21,39 @@ st.set_page_config(
 # ("light" or "dark") made via Settings → Theme. Wrapped in try/except
 # since this is a relatively recent API — older Streamlit versions (or any
 # future API change) fall back to "light" rather than crash the whole app.
+#
+# CONFIRMED BUG (Streamlit's own docs, st.context.theme page): "the theme
+# type may be incorrect... when the app is first loaded within a session,
+# [or] when the user changes the theme in the settings menu." This
+# directly explains a screenshot showing Smart Event Panel / Sensor
+# Health labels still using light-mode colors despite a dark navy
+# background actually being rendered (from config.toml, a separate
+# mechanism this Python read doesn't control). Per a Streamlit engineer
+# on GitHub issue #11870: "any user interaction will lead to the correct
+# value being accessible on the backend" — i.e. one extra rerun fixes it.
+# This forces exactly ONE corrective rerun per session, immediately,
+# rather than waiting for the person to happen to click something —
+# session_state guards it so it only ever fires once, not on every
+# normal rerun afterward.
 try:
     _active_theme = st.context.theme.type
 except Exception:
     _active_theme = "light"
+
+# Force up to 2 corrective reruns per session. A value-COMPARISON
+# approach (rerun only if the reading changed) was considered and
+# rejected: if the very first reading is wrong and STAYS wrong on the
+# next rerun too (the docs don't guarantee exactly one rerun fixes it,
+# just that "any user interaction" eventually does), comparing against
+# that same wrong value would never trigger a second attempt — silently
+# stuck wrong for the whole session. A simple bounded retry count avoids
+# that failure mode, at the cost of 1-2 invisible extra reruns on every
+# session start, which is cheap compared to rendering the wrong theme
+# for the user's entire visit.
+_rerun_attempts = st.session_state.get("_theme_rerun_attempts", 0)
+if _rerun_attempts < 2:
+    st.session_state["_theme_rerun_attempts"] = _rerun_attempts + 1
+    st.rerun()
 
 # ── Palette tokens ─────────────────────────────────────────────────────────────
 # Exact hex values from the design brief. Defined once here as CSS custom
@@ -164,6 +193,17 @@ st.markdown("<style>" + _palette_css + """
         background: transparent;
         box-shadow: none;
         padding: 0;
+    }
+    /* BUGFIX: the Retry button (page1_realtime.py) sits in a narrow
+       column that was getting the full card treatment despite holding
+       only one small button — confirmed via screenshot showing an
+       oversized box around "Retry". Wrapped in st.container(key=
+       "retry_btn_container") specifically so this CSS can exclude just
+       that one instance, without affecting any other column. */
+    .st-key-retry_btn_container {
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
     }
     div[data-testid="stExpander"] {
         background: var(--bg-card);
@@ -326,6 +366,23 @@ st.markdown("<style>" + _palette_css + """
     /* Misc */
     .muted { color: var(--text-secondary); font-size:0.78rem; }
     .section-divider { border:none; border-top:1px solid var(--bg-card-alt); margin:10px 0; }
+
+    /* BUGFIX: replaces THEME_COLORS (Python-side st.context.theme.type
+       detection) for these two specific spots — confirmed via screenshot
+       that labels stayed dim/unreadable in dark mode despite the
+       earlier fix being present in the code. Root cause, confirmed via
+       Streamlit's own documentation: st.context.theme.type "may be
+       incorrect... when the app is first loaded within a session, or
+       when the user changes the theme in the settings menu" — exactly
+       the two moments that matter most for this dashboard. A CSS class
+       using var(--text-secondary-on-card) instead is resolved by the
+       BROWSER at the same time as the actual background color, with no
+       separate, uncertain Python read involved — so it can't fall out
+       of sync with what's actually rendered the way the inline-style
+       approach could. */
+    .label-secondary { color: var(--text-secondary-on-card) !important; }
+    .track-bg { background: var(--bg-card-alt); }
+    .divider-border { border-color: var(--bg-card-alt) !important; }
 </style>
 """, unsafe_allow_html=True)
 
