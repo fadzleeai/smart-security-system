@@ -495,18 +495,33 @@ def main():
                         last_detection_time = time.time()
                         authorized = result["action"] == "AUTHORIZED"
 
-                        # Log this detection event to the CSV the dashboard reads.
-                        # .get() used for keys not confirmed to always exist, so a
-                        # missing field never crashes the live detection loop.
-                        write_log_row(
-                            logger,
-                            event_type="visitor",
-                            visitor_name=result["name"],
-                            auth_result=result["action"],
-                            threat_level=result.get("risk", ""),
-                            door_status="Open" if door_sensor.is_open() else "Closed",
-                            confidence=result.get("confidence", ""),
-                        )
+                        # Only the CSV write is gated on a final outcome —
+                        # door_sensor.handle_door_event() below runs for
+                        # EVERY detected face, including VERIFYING and
+                        # WAIT_LIVENESS. Reasoning: if the door is already
+                        # open before identity is even confirmed, that's
+                        # dangerous regardless of who's standing there —
+                        # the alarm must fire immediately, not wait for a
+                        # liveness check to finish. Logging is separate:
+                        # VERIFYING/WAIT_LIVENESS are sub-second transient
+                        # states, not real audit-log-worthy events, so they
+                        # don't get a CSV row — but the door alarm still
+                        # checks every single frame, no exceptions.
+                        is_final_outcome = result["action"] in ("AUTHORIZED", "DENIED")
+
+                        if is_final_outcome:
+                            # Log this detection event to the CSV the dashboard reads.
+                            # .get() used for keys not confirmed to always exist, so a
+                            # missing field never crashes the live detection loop.
+                            write_log_row(
+                                logger,
+                                event_type="visitor",
+                                visitor_name=result["name"],
+                                auth_result=result["action"],
+                                threat_level=result.get("risk", ""),
+                                door_status="Open" if door_sensor.is_open() else "Closed",
+                                confidence=result.get("confidence", ""),
+                            )
 
                         door_sensor.handle_door_event(
                             authorized=authorized,
