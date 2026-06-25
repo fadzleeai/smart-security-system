@@ -215,6 +215,6 @@ def render():
                     )
 
     st.caption(
-        "Images loaded from `images/` on Raspberry Pi. "
-        "Future improvement: add to authorized database for model retraining."
+        "Images served live from the Pi's `strangers/` folder via "
+        "the /images/ route — not cached or stored on Streamlit Cloud."
     )
