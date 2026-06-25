@@ -91,7 +91,11 @@ FLOW_STEPS = [
     "Decision logic",
     "Save stranger image",
     "Write security_logs.csv",
-    "Pi API serves /logs",
+    "Pi API serves logs",  # shortened from "Pi API serves /logs" — the
+                            # slash made this phrase wrap to 2 lines in a
+                            # pill sized the same as the others; dropping
+                            # it keeps the meaning intact while fitting
+                            # on one line, per explicit feedback
     "Streamlit fetches via tunnel",
 ]
 
@@ -99,13 +103,19 @@ def _render_flow():
     cols = st.columns(len(FLOW_STEPS))
     for i, (col, step) in enumerate(zip(cols, FLOW_STEPS)):
         is_last = i == len(FLOW_STEPS) - 1
-        bg      = "#dbeafe" if is_last else "#f3f4f6"
-        color   = "#1e40af" if is_last else "#374151"
+        # Uses the theme's own CSS variables (set in app.py) instead of
+        # hardcoded blue/gray, so this pipeline diagram actually follows
+        # whichever palette — light or dark — is currently active.
+        bg    = "var(--accent-bright)" if is_last else "var(--bg-card-alt)"
+        color = "var(--text-on-accent)" if is_last else "var(--text-primary)"
         with col:
             st.markdown(
                 f'<div style="background:{bg};color:{color};border-radius:20px;'
-                f'padding:4px 8px;font-size:0.7rem;font-weight:500;text-align:center;'
-                f'line-height:1.3">{step}</div>',
+                f'padding:8px 10px;font-size:0.7rem;font-weight:600;'
+                f'text-align:center;line-height:1.3;min-height:48px;'
+                f'display:flex;align-items:center;justify-content:center;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'{step}</div>',
                 unsafe_allow_html=True,
             )
 
