@@ -16,8 +16,64 @@ st.set_page_config(
                                        # ">" chevron top-left reopens it if closed
 )
 
+# ── Theme detection ────────────────────────────────────────────────────────────
+# st.context.theme.type reports the person's CURRENTLY ACTIVE theme choice
+# ("light" or "dark") made via Settings → Theme. Wrapped in try/except
+# since this is a relatively recent API — older Streamlit versions (or any
+# future API change) fall back to "light" rather than crash the whole app.
+try:
+    _active_theme = st.context.theme.type
+except Exception:
+    _active_theme = "light"
+
+# ── Palette tokens ─────────────────────────────────────────────────────────────
+# Exact hex values from the design brief. Defined once here as CSS custom
+# properties (variables) rather than duplicating every rule twice for
+# light/dark — each rule below references var(--xxx), and only the
+# variable definitions differ between the two themes.
+if _active_theme == "dark":
+    _palette_css = """
+    :root {
+        --bg-page:        #344364;  /* deepest navy — base background */
+        --bg-card:        #4f6783;  /* mid blue-gray — card surface */
+        --bg-card-alt:    #6a8ba0;  /* lighter blue-gray — secondary card layer */
+        --accent-bright:  #aee3eb;  /* brightest cyan — "glowing" buttons, key numbers */
+        --accent-mid:     #9bcbd7;  /* secondary bright accent */
+        --text-primary:   #aee3eb; /* key data / headline numbers */
+        --text-secondary: #81a8b9; /* muted labels, secondary text */
+        --text-on-accent: #1F2D2A; /* dark text ON TOP of bright accent buttons */
+        --alert-bg:       #ED8D5A; /* most saturated warm color — still stands out on navy */
+        --alert-text:     #FFFFFF;
+        --badge-ok-bg:    #6a8ba0; --badge-ok-text:    #aee3eb;
+        --badge-warn-bg:  #81a8b9; --badge-warn-text:  #344364;
+        --badge-bad-bg:   #ED8D5A; --badge-bad-text:   #FFFFFF;
+        --badge-gray-bg:  #4f6783; --badge-gray-text:  #81a8b9;
+        --card-shadow:    0 4px 16px rgba(0,0,0,0.35);
+    }
+    """
+else:
+    _palette_css = """
+    :root {
+        --bg-page:        #F4F9F6;  /* soft near-white sage — base background */
+        --bg-card:        #FFFFFF;  /* card surface, floats above the sage bg */
+        --bg-card-alt:    #BFDFD2; /* softest palette color — secondary card layer */
+        --accent-bright:  #51999F; /* deep teal — core action buttons */
+        --accent-mid:     #4198AC; /* second deep teal — card titles/icons */
+        --text-primary:   #1F2D2A;
+        --text-secondary: #51999F;
+        --text-on-accent: #FFFFFF; /* light text on top of the deep teal buttons */
+        --alert-bg:       #ED8D5A; /* most saturated color in the palette, per brief */
+        --alert-text:     #FFFFFF;
+        --badge-ok-bg:    #BFDFD2; --badge-ok-text:    #1F2D2A;
+        --badge-warn-bg:  #DBCB92; --badge-warn-text:  #1F2D2A;
+        --badge-bad-bg:   #ED8D5A; --badge-bad-text:   #FFFFFF;
+        --badge-gray-bg:  #7BC0CD; --badge-gray-text:  #1F2D2A;
+        --card-shadow:    0 2px 10px rgba(81,153,159,0.12);
+    }
+    """
+
 # ── Global CSS ────────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(_palette_css + """
 <style>
     /* Main content padding — top increased from 1rem to clear Streamlit
        Cloud's platform bar (Share/Star/Edit/GitHub/⋮), which sits in a
@@ -25,85 +81,161 @@ st.markdown("""
     .block-container { padding-top: 3.5rem; padding-bottom: 1rem; }
     [data-testid="stMetricLabel"] { font-size: 0.78rem; }
 
+    /* Hide the hyperlink/anchor icon Streamlit auto-adds to EVERY markdown
+       header (#, ##, ###, ####, #####) on hover. st.header/st.subheader
+       calls use their own anchor=False parameter instead (see app.py and
+       page1/2/3_*.py) — this CSS rule is the global fallback covering
+       every st.markdown("##### ...") card sub-title across all three
+       pages, since those don't have an anchor parameter to set directly.
+       data-testid is a stable Streamlit contract, unlike auto-generated
+       class names (e.g. old .css-XXXXX selectors), so this should keep
+       working across Streamlit version upgrades. */
+    [data-testid="stHeaderActionElements"] { display: none; }
+
+    /* Card-based design: every MAJOR panel gets a soft rounded card
+       surface — per brief's "card-based, soft layering, generous
+       rounding". Deliberately conservative: only OUTER-level columns
+       get the card treatment, not every nested label/value column pair
+       inside them (e.g. the "System status: Monitoring" rows in the
+       Smart Event Panel) — those would fragment into a dozen tiny
+       cards instead of reading as one cohesive panel if styled the
+       same way. The :not() clause excludes any stColumn whose nearest
+       stColumn ancestor IS itself a stColumn — i.e. nested columns are
+       deliberately skipped, achieved purely in CSS rather than
+       restructuring any of the already-tested page Python code. */
+    div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div {
+        background: var(--bg-card);
+        border-radius: 18px;
+        box-shadow: var(--card-shadow);
+        padding: 16px;
+    }
+    div[data-testid="stExpander"] {
+        background: var(--bg-card);
+        border-radius: 18px;
+        box-shadow: var(--card-shadow);
+    }
+
+    /* Card titles & section headers — deep accent color throughout, per
+       brief's "card titles and main icons unified in deep teal/cyan so
+       the interface's skeleton is clear". */
+    h1, h2, h3, h4, h5, h6 {
+        color: var(--accent-mid) !important;
+    }
+
     /* Sidebar width */
-    [data-testid="stSidebar"] { min-width: 230px; max-width: 230px; }
+    [data-testid="stSidebar"] {
+        min-width: 230px; max-width: 230px;
+        background: var(--bg-card-alt) !important;
+    }
     [data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
 
-    /* All sidebar buttons — left-aligned, no border, full width */
+    /* All sidebar buttons — left-aligned, no border, full width, fully
+       rounded per brief's pill-shaped, friendly nav style */
     div[data-testid="stSidebar"] .stButton > button {
         width: 100%;
         text-align: left !important;
         justify-content: flex-start !important;
         background: transparent;
         border: none !important;
-        border-radius: 8px;
-        padding: 9px 14px;
+        border-radius: 999px;
+        padding: 9px 16px;
         font-size: 0.87rem;
-        color: #374151;
+        color: var(--text-primary);
         margin-bottom: 2px;
         box-shadow: none !important;
     }
     div[data-testid="stSidebar"] .stButton > button:hover {
-        background: #f3f4f6 !important;
-        color: #111827 !important;
+        background: var(--bg-card) !important;
+        color: var(--accent-mid) !important;
     }
 
-    /* Active nav item — blue highlight */
+    /* Active nav item — deep accent highlight, matching brief's "make it
+       obvious where to click" emphasis */
     div[data-testid="stSidebar"] .nav-active .stButton > button {
-        background: #eff6ff !important;
-        color: #1d4ed8 !important;
+        background: var(--accent-bright) !important;
+        color: var(--text-on-accent) !important;
         font-weight: 600 !important;
-        border-left: 3px solid #1d4ed8 !important;
-        border-radius: 0 8px 8px 0 !important;
-        padding-left: 11px !important;
+        border-radius: 999px !important;
+        padding-left: 16px !important;
     }
 
     /* Back / Next buttons — smaller */
     div[data-testid="stSidebar"] .nav-arrow .stButton > button {
         font-size: 0.78rem;
         padding: 6px 10px;
-        color: #6b7280;
+        color: var(--text-secondary);
     }
 
-    /* Badges */
+    /* Core action buttons (Stop Alert, Refresh, Retry, popup actions) —
+       brief: "unified deep teal/glowing cyan background so users know
+       exactly what's clickable". Targets Streamlit's real button
+       element directly, not just sidebar nav buttons, so this covers
+       every st.button() across all three pages and the alert popup. */
+    div[data-testid="stMainBlockContainer"] .stButton > button,
+    div[data-testid="stDialog"] .stButton > button {
+        background: var(--accent-bright) !important;
+        color: var(--text-on-accent) !important;
+        border: none !important;
+        border-radius: 14px !important;
+        font-weight: 600 !important;
+        box-shadow: var(--card-shadow);
+    }
+    div[data-testid="stMainBlockContainer"] .stButton > button:hover,
+    div[data-testid="stDialog"] .stButton > button:hover {
+        filter: brightness(1.08);
+    }
+    div[data-testid="stMainBlockContainer"] .stButton > button:disabled {
+        opacity: 0.5;
+        filter: none;
+    }
+
+    /* Badges — fully rounded pills throughout, per brief, using the
+       softer palette tones so status tags read as layered information,
+       not competing alarms (only the main alert banner below is allowed
+       to be the loudest element on the page, per brief's hierarchy rule). */
     .badge {
         display: inline-block;
-        padding: 2px 10px;
-        border-radius: 20px;
+        padding: 3px 12px;
+        border-radius: 999px;
         font-size: 0.75rem;
         font-weight: 600;
     }
-    .badge-green { background:#d1fae5; color:#065f46; }
-    .badge-red   { background:#fee2e2; color:#991b1b; }
-    .badge-amber { background:#fef3c7; color:#92400e; }
-    .badge-blue  { background:#dbeafe; color:#1e40af; }
-    .badge-gray  { background:#f3f4f6; color:#374151; }
+    .badge-green { background: var(--badge-ok-bg);   color: var(--badge-ok-text); }
+    .badge-red   { background: var(--badge-bad-bg);  color: var(--badge-bad-text); }
+    .badge-amber { background: var(--badge-warn-bg); color: var(--badge-warn-text); }
+    .badge-blue  { background: var(--bg-card-alt);   color: var(--accent-mid); }
+    .badge-gray  { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
 
-    /* Alert banners */
-    .alert-danger {
-        background:#fee2e2; color:#991b1b;
-        border:1px solid #fca5a5; border-radius:8px;
-        padding:10px 16px; font-size:0.85rem; font-weight:600;
-        margin-bottom:12px;
-    }
-    .alert-warning {
-        background:#fef3c7; color:#92400e;
-        border:1px solid #fcd34d; border-radius:8px;
-        padding:10px 16px; font-size:0.85rem; font-weight:600;
-        margin-bottom:12px;
+    /* Main alert banner — brief: "the MOST attention-grabbing color,
+       white text, must be impossible to miss at first glance". This is
+       deliberately the ONLY place --alert-bg appears as a full-width
+       background (not just a badge accent), so it stays unmistakably
+       the loudest thing on the page, matching the brief's visual
+       hierarchy rule precisely. */
+    .alert-danger, .alert-warning {
+        background: var(--alert-bg);
+        color: var(--alert-text);
+        border: none;
+        border-radius: 14px;
+        padding: 12px 18px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+        box-shadow: var(--card-shadow);
     }
 
     /* Image placeholder */
     .img-placeholder {
-        background:#f9fafb; border:1px dashed #d1d5db;
-        border-radius:8px; height:140px;
+        background: var(--bg-card-alt);
+        border: 1px dashed var(--text-secondary);
+        border-radius: 14px; height: 140px;
         display:flex; align-items:center; justify-content:center;
-        color:#9ca3af; font-size:0.8rem; text-align:center;
+        color: var(--text-secondary); font-size:0.8rem; text-align:center;
     }
 
     /* Misc */
-    .muted { color:#6b7280; font-size:0.78rem; }
-    .section-divider { border:none; border-top:1px solid #f3f4f6; margin:10px 0; }
+    .muted { color: var(--text-secondary); font-size:0.78rem; }
+    .section-divider { border:none; border-top:1px solid var(--bg-card-alt); margin:10px 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -122,7 +254,7 @@ if "page" not in st.session_state:
 # It collapses/reopens this sidebar — no extra code needed.
 
 with st.sidebar:
-    st.markdown("### 🔒 Security Dashboard")
+    st.subheader("🔒 Security Dashboard", anchor=False)
     st.markdown("---")
 
     pages = [
@@ -174,7 +306,7 @@ titles = {
     "analytics": "📊 Visitor analytics & stranger gallery",
     "logs":      "📋 Historical audit logs",
 }
-st.markdown(f"## {titles[st.session_state['page']]}")
+st.header(titles[st.session_state["page"]], anchor=False)
 st.markdown("---")
 
 # ── Global alert popup ────────────────────────────────────────────────────────
