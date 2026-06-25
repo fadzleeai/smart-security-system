@@ -53,12 +53,33 @@ def _safe_get(path: str):
     """
     GET request to Pi API.
     Returns requests.Response on success, None on any failure.
+
+    TEMPORARY DEBUG INSTRUMENTATION:
+    print() statements added here on purpose — Streamlit Cloud's log
+    viewer captures stdout but does NOT automatically show Python
+    `logging` module output or silently-caught exceptions. Without
+    these prints, a failure here is completely invisible in the deploy
+    logs, which is exactly the blind spot that made the last debugging
+    session impossible. Remove these once the connection issue is
+    confirmed fixed — they're noisy for day-to-day use.
     """
+    url = f"{PI_API_URL}{path}"
     try:
-        resp = requests.get(f"{PI_API_URL}{path}", timeout=REQUEST_TIMEOUT)
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
+        print(f"[PI-DEBUG] GET {url} -> {resp.status_code} OK")
         return resp
-    except requests.exceptions.RequestException:
+    except requests.exceptions.Timeout:
+        print(f"[PI-DEBUG] GET {url} -> TIMEOUT after {REQUEST_TIMEOUT}s")
+        return None
+    except requests.exceptions.ConnectionError as e:
+        print(f"[PI-DEBUG] GET {url} -> CONNECTION ERROR: {e}")
+        return None
+    except requests.exceptions.HTTPError as e:
+        print(f"[PI-DEBUG] GET {url} -> HTTP ERROR: {e}")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"[PI-DEBUG] GET {url} -> OTHER REQUEST ERROR: {type(e).__name__}: {e}")
         return None
 
 
@@ -85,9 +106,14 @@ def is_pi_reachable() -> bool:
     backend (src/webapp.py) — confirm with whoever owns that file which
     routes actually exist; this fallback means the check works either way.
     """
-    if _safe_get("/health") is not None:
+    health_resp = _safe_get("/health")
+    if health_resp is not None:
+        print("[PI-DEBUG] is_pi_reachable() -> True (via /health)")
         return True
-    return _safe_get("/state") is not None
+    state_resp = _safe_get("/state")
+    result = state_resp is not None
+    print(f"[PI-DEBUG] is_pi_reachable() -> {result} (via /state fallback)")
+    return result
 
 
 @st.cache_data(ttl=5)
