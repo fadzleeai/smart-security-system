@@ -8,7 +8,7 @@ from datetime import datetime
 
 import streamlit as st
 import pandas as pd
-from data_source import get_full_logs, refresh_logs
+from data_source import get_full_logs, refresh_logs, PI_TIMEZONE
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -18,6 +18,10 @@ def _colour_result(val: str) -> str:
         return "background-color:#d1fae5; color:#065f46; font-weight:600"
     if val == "Denied":
         return "background-color:#fee2e2; color:#991b1b; font-weight:600"
+    if val == "Pending Authorization":
+        return "background-color:#dbeafe; color:#1e40af; font-weight:600"
+    if val == "Reviewed — Unknown":
+        return "background-color:#f3f4f6; color:#374151; font-weight:600"
     return ""
 
 
@@ -147,7 +151,11 @@ def render():
         use_date_filter = st.checkbox("Filter by date", value=False)
         date_filter = None
         if use_date_filter:
-            date_filter = st.date_input("Date", value=datetime.today().date())
+            # Default to "today" in Malaysia time (matching the Pi's clock,
+            # which is what every CSV timestamp actually represents) — not
+            # datetime.today(), which would be wrong for hours each day
+            # since Streamlit Cloud's servers run in UTC.
+            date_filter = st.date_input("Date", value=datetime.now(PI_TIMEZONE).date())
 
     # Apply filters
     filtered = df.copy()
