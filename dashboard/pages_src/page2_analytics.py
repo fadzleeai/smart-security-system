@@ -99,20 +99,30 @@ def _stranger_card(item: dict):
     bg     = "#fff5f5" if item["is_suspicious"] else "#f9fafb"
     label_color = "#991b1b" if item["is_suspicious"] else "#6b7280"
 
-    # ── REAL DATA SWAP ──────────────────────────────────────────────────────
-    # Replace the placeholder <div> below with:
-    #   if item["img_path"] and os.path.exists(item["img_path"]):
-    #       st.image(item["img_path"], use_column_width=True)
-    # The img_path is set in get_stranger_gallery() in data_source.py
-    # ────────────────────────────────────────────────────────────────────────
-    icon = "⚠️" if item["is_suspicious"] else "👤"
+    # Card wrapper (border/background/label) stays as styled HTML, but the
+    # actual photo now renders via st.image() instead of a placeholder
+    # emoji icon — that emoji-only version was leftover mock code, never
+    # actually replaced despite the comment saying to. img_path comes from
+    # get_stranger_gallery() in data_source.py, pointing at the Pi's real
+    # /images/<filename> route.
     st.markdown(f"""
-    <div style="{border} background:{bg}; border-radius:8px;
-                 padding:14px; text-align:center; min-height:130px;
-                 display:flex;flex-direction:column;align-items:center;justify-content:center">
-      <div style="font-size:2rem;margin-bottom:6px">{icon}</div>
+    <div style="{border} background:{bg}; border-radius:8px 8px 0 0;
+                 padding:8px; text-align:center;">
+    """, unsafe_allow_html=True)
+
+    if item.get("img_path"):
+        try:
+            st.image(item["img_path"], use_container_width=True)
+        except Exception:
+            st.markdown('<div style="font-size:2rem;padding:20px">⚠️</div>',
+                        unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="font-size:2rem;padding:20px">👤</div>',
+                    unsafe_allow_html=True)
+
+    st.markdown(f"""
       <div style="font-size:0.78rem;font-weight:600;color:{label_color}">{item['label']}</div>
-      <div style="font-size:0.72rem;color:#9ca3af;margin-top:2px">
+      <div style="font-size:0.72rem;color:#9ca3af;margin-top:2px;margin-bottom:8px">
         {item['time']} &bull; {item['visits']} visit(s)
       </div>
     </div>
@@ -179,15 +189,30 @@ def render():
 
     # ── Stranger gallery ──────────────────────────────────────────────────────
     st.markdown("")
-    st.markdown("##### Stranger gallery")
+    st.markdown("##### Stranger gallery — 3 latest")
 
     if not gallery:
         st.info("No unknown visitors recorded today.")
     else:
-        cols = st.columns(min(len(gallery), 4))
-        for col, item in zip(cols, gallery):
+        # Explicit requirement: show the 3 latest stranger images in a row.
+        # gallery is already sorted newest-first by get_stranger_gallery(),
+        # so [:3] here is genuinely the 3 most recent, not an arbitrary slice.
+        latest_three = gallery[:3]
+        cols = st.columns(3)
+        for i, col in enumerate(cols):
             with col:
-                _stranger_card(item)
+                if i < len(latest_three):
+                    _stranger_card(latest_three[i])
+                else:
+                    # Fewer than 3 strangers exist — show an empty slot
+                    # rather than stretching 1-2 cards to fill the row.
+                    st.markdown(
+                        '<div style="border:1px dashed #e5e7eb; border-radius:8px; '
+                        'padding:20px; text-align:center; color:#d1d5db; min-height:160px; '
+                        'display:flex;align-items:center;justify-content:center">'
+                        '<span style="font-size:0.78rem">No more strangers</span></div>',
+                        unsafe_allow_html=True,
+                    )
 
     st.caption(
         "Images loaded from `images/` on Raspberry Pi. "
