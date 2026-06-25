@@ -108,6 +108,24 @@ st.markdown("<style>" + _palette_css + """
     .block-container { padding-top: 3.5rem; padding-bottom: 1rem; }
     [data-testid="stMetricLabel"] { font-size: 0.78rem; }
 
+    /* BODY TEXT SIZE FIX, per explicit feedback wanting content text at
+       least as large as a typical chat interface. Most of the existing
+       inline-styled card content across page1/2/3_*.py uses font-size
+       values between 0.7rem and 0.83rem (~11-13px) — genuinely smaller
+       than a typical chat message (~16px/1rem). Rather than hand-edit
+       a dozen individual declarations (error-prone, easy to miss some),
+       this increases the document ROOT font-size — since rem units are
+       defined relative to the root, every existing rem-based size
+       across all three pages scales up proportionally and consistently
+       from this one rule, without touching each one individually. 16px
+       is the browser default; 18px (1.125x) noticeably closer to chat
+       text size without making everything oversized. */
+    html { font-size: 18px; }
+
+    /* Main page title, sidebar title, and the document root all need
+       the bold treatment to clearly read as titles, not body content —
+       see h1-h6 rule further below. */
+
     /* Hide the hyperlink/anchor icon Streamlit auto-adds to EVERY markdown
        header (#, ##, ###, ####, #####) on hover. st.header/st.subheader
        calls use their own anchor=False parameter instead (see app.py and
@@ -134,7 +152,18 @@ st.markdown("<style>" + _palette_css + """
         background: var(--bg-card);
         border-radius: 18px;
         box-shadow: var(--card-shadow);
-        padding: 16px;
+        padding: 10px;
+    }
+    /* BUGFIX: on Page 1, the "Back" button slot renders an empty column
+       (cur_idx == 0 means the button is conditionally skipped, but the
+       surrounding st.columns(2) structure still creates the column div
+       either way) — confirmed via screenshot showing a visible empty
+       card box where Back would be. :empty rolls back the card styling
+       for any column with genuinely no rendered content inside it. */
+    div[data-testid="stColumn"]:not(div[data-testid="stColumn"] div[data-testid="stColumn"]) > div:empty {
+        background: transparent;
+        box-shadow: none;
+        padding: 0;
     }
     div[data-testid="stExpander"] {
         background: var(--bg-card);
@@ -164,7 +193,7 @@ st.markdown("<style>" + _palette_css + """
         background: var(--bg-card);
         border-radius: 18px;
         box-shadow: var(--card-shadow);
-        padding: 14px 20px;
+        padding: 10px 16px;
     }
 
     /* CONTRAST FIX: --text-secondary as originally assigned (#81a8b9 on
