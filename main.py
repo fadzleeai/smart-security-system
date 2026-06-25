@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 import argparse
+import fcntl
 from flask import Flask, Response
 
 try:
@@ -127,16 +128,37 @@ def write_log_row(logger, event_type, visitor_name="", auth_result="",
                               whether any face was ever recognized
     Writing the header once if the file doesn't exist yet, then appending,
     keeps this safe to call repeatedly without ever overwriting history.
+
+    ISSUE 4 FIX — Latent Logic Vulnerability:
+    fcntl.flock() makes the "does the file exist yet -> maybe write header
+    -> write row" sequence atomic across callers, even if main.py's
+    background threads (door watcher, entry_lockout_handler) ever call
+    this concurrently. Without the lock, two near-simultaneous calls could
+    both see "no file yet" and both write a header, corrupting the CSV
+    with a duplicate header row in the middle of the data.
+
+    This does NOT protect against pi_server.py reading the file via a
+    separate OS process while this write is in progress — flock() only
+    coordinates locks within the same locking scheme, and a plain
+    open(path, "r") on the read side doesn't request a lock at all. See
+    the matching note in pi_server.py's get_logs() for why a short
+    single-line append is still safe to read concurrently in practice.
     """
     try:
-        file_exists = os.path.isfile(CSV_LOG_PATH)
         with open(CSV_LOG_PATH, "a") as f:
-            if not file_exists:
-                f.write(CSV_HEADER)
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            row = f"{timestamp},{event_type},{visitor_name},{auth_result}," \
-                  f"{threat_level},{door_status},{confidence},{img_file}\n"
-            f.write(row)
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                file_exists = os.path.isfile(CSV_LOG_PATH) and f.tell() > 0
+                if not file_exists:
+                    f.write(CSV_HEADER)
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                row = f"{timestamp},{event_type},{visitor_name},{auth_result}," \
+                      f"{threat_level},{door_status},{confidence},{img_file}\n"
+                f.write(row)
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     except Exception as e:
         logger.error(f"Failed to write CSV log row: {e}")
 
