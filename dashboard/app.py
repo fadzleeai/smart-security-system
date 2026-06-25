@@ -232,6 +232,29 @@ st.markdown("<style>" + _palette_css + """
         box-shadow: none !important;
         padding: 0 !important;
     }
+
+    /* Page 3 pipeline diagram, per explicit screenshot annotation: the
+       first 7 steps need a visible boundary that hugs THEIR combined
+       width (the "yellow box" in the annotation), separate from the
+       8th step's own boundary (the "black box"). Both wrapped in
+       st.container(horizontal=True) in page3_logs.py — CONFIRMED via
+       Streamlit's own docs that horizontal containers size themselves
+       based on their CONTENT natively (unlike st.columns, which divides
+       fixed proportions of the full width) — so no extra CSS forcing
+       is needed for the outer shrink-to-fit behavior at all. This CSS
+       only adds the visible background/border decoration on top of
+       that already-correct native sizing. */
+    .st-key-flow_main_steps {
+        background: var(--bg-card-alt) !important;
+        border-radius: 14px !important;
+        padding: 8px !important;
+    }
+    .st-key-flow_last_step {
+        background: var(--bg-page) !important;
+        border: 2px solid var(--accent-mid) !important;
+        border-radius: 14px !important;
+        padding: 4px !important;
+    }
     div[data-testid="stExpander"] {
         background: var(--bg-card);
         border-radius: 18px;
