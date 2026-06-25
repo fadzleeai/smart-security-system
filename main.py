@@ -110,6 +110,17 @@ STRANGERS_DIR   = os.environ.get("STRANGERS_DIR",   "strangers")
 MODELS_DIR      = os.environ.get("MODELS_DIR",      "models")
 CSV_LOG_PATH    = os.environ.get("CSV_LOG_PATH",    "/home/admin/smart-security-system/security_logs.csv")
 
+# Same file pi_server.py writes via POST /alarm/stop. pi_server.py's
+# ALARM_FLAG_PATH is relative to ITS OWN folder (dashboard/), confirmed
+# against its BASE_DIR/PROJECT_DIR setup — main.py runs from the project
+# root one level up, so this needs the dashboard/ prefix to find the
+# exact same physical file, not a relative "alarm_dismiss.json" which
+# main.py running from a different working directory.
+ALARM_FLAG_PATH = os.environ.get(
+    "ALARM_FLAG_PATH",
+    "/home/admin/smart-security-system/dashboard/alarm_dismiss.json",
+)
+
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
@@ -315,6 +326,13 @@ def unattended_door_watcher(door_sensor, speaker, logger, lockout_event):
     and additionally calls the speaker every UNATTENDED_DOOR_REPEAT seconds
     for as long as the door remains open past UNATTENDED_DOOR_THRESHOLD
     without an authorized entry in progress.
+
+    Checks ALARM_FLAG_PATH (written by pi_server.py's POST /alarm/stop,
+    triggered from the dashboard's Stop Alert popup button) right before
+    each scheduled alarm — if present, consumes it and skips that one
+    cycle only. The door alarm resumes on its own next cycle if the door
+    is still open, since a dismiss should silence the CURRENT alert, not
+    disable future ones for a door that's still genuinely open.
     """
     was_open          = False
     open_since         = None
@@ -340,15 +358,31 @@ def unattended_door_watcher(door_sensor, speaker, logger, lockout_event):
         elif is_open and not lockout_event.is_set():
             # Door has been continuously open; check if it's unattended too long
             if next_alarm_at is not None and time.time() >= next_alarm_at:
-                logger.warning(
-                    "[DOOR-WATCH] Door open %ds with no authorized entry — ALARM",
-                    int(time.time() - open_since),
-                )
-                speaker.say("Warning. Door has been left open. Please check the entrance.")
-                write_log_row(
-                    logger, event_type="door",
-                    threat_level="Suspicious", door_status="Open",
-                )
+                # Check for a dashboard-requested dismiss BEFORE speaking.
+                # Consuming the flag (deleting it) means this only
+                # suppresses THIS scheduled alarm — if the door is still
+                # open UNATTENDED_DOOR_REPEAT seconds later, the alarm
+                # resumes normally, matching your decision that dismissing
+                # must not silence a still-open door permanently.
+                dismissed = False
+                if os.path.exists(ALARM_FLAG_PATH):
+                    try:
+                        os.remove(ALARM_FLAG_PATH)
+                        dismissed = True
+                        logger.info("[DOOR-WATCH] Alarm dismissed via dashboard — skipping this cycle.")
+                    except Exception as e:
+                        logger.error(f"[DOOR-WATCH] Failed to consume dismiss flag: {e}")
+
+                if not dismissed:
+                    logger.warning(
+                        "[DOOR-WATCH] Door open %ds with no authorized entry — ALARM",
+                        int(time.time() - open_since),
+                    )
+                    speaker.say("Warning. Door has been left open. Please check the entrance.")
+                    write_log_row(
+                        logger, event_type="door",
+                        threat_level="Suspicious", door_status="Open",
+                    )
                 next_alarm_at = time.time() + UNATTENDED_DOOR_REPEAT
 
         was_open = is_open
