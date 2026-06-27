@@ -288,8 +288,31 @@ def get_system_state() -> dict:
     state        = _fetch_state()
     pi_reachable = is_pi_reachable()
 
-    # Build image URL from filename (Pi sends bare filename or full path)
-    raw_img      = state.get("last_visitor_img") or ""
+    # BUG FIX (confirmed against real Pi hardware): last_visitor_img
+    # previously came ONLY from /state's single-most-recent-row
+    # snapshot — if an authorized visitor (no photo) walked in after an
+    # unreviewed stranger, this went back to None and Page 1's "Latest
+    # visitor capture" card went blank, even though a real unreviewed
+    # stranger photo still existed. This is the EXACT same root cause
+    # already fixed for the alert popup via /stranger/pending (which
+    # scans ALL recent Denied rows for the oldest unreviewed one) — that
+    # fix was never applied here too. Now checks /stranger/pending FIRST;
+    # only falls back to /state's snapshot if there's no pending stranger,
+    # so an authorized visitor's most recent event correctly still shows
+    # via the original path when there's genuinely nothing stranger-side
+    # to display.
+    raw_img = None
+    if pi_reachable:
+        resp = _safe_get("/stranger/pending")
+        if resp is not None:
+            try:
+                pending_filename = resp.json().get("filename")
+                if pending_filename:
+                    raw_img = pending_filename
+            except Exception:
+                pass
+    if not raw_img:
+        raw_img = state.get("last_visitor_img") or ""
     last_img_url = _pi_image_url(raw_img) if raw_img else None
 
     # Same casing fix as _fetch_logs_df() — main.py writes "AUTHORIZED" /
@@ -699,21 +722,4 @@ def get_full_logs() -> pd.DataFrame:
             lambda x: THREAT_MAP.get(str(x).strip(), "None")
         )
 
-        # Motion column — door open = motion implied
-        motion_display = df["event_type"].apply(
-            lambda x: True if str(x) in ("visitor", "door") else False
-        )
-
-        out = pd.DataFrame({
-            "Timestamp":   ts,
-            "Visitor":     df["visitor_name"].replace("", "—"),
-            "Motion":      motion_display,
-            "Auth result": df["auth_result"].replace("", "—"),
-            "Threat":      threat_display,
-            "Door":        df["door_status"].replace("", "—"),
-            "Confidence":  pd.to_numeric(df["confidence"], errors="coerce").round(2),
-        })
-        return out
-
-    except Exception:
-        return empty
+        # Motion column — door open = motion 
