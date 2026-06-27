@@ -46,6 +46,7 @@ import os
 import csv
 import json
 import time
+import psutil
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -66,6 +67,62 @@ REVIEWED_STRANGERS_PATH = os.path.join(BASE_DIR, "reviewed_strangers.json")
 RECENT_EVENT_WINDOW_SECONDS = 60
 
 app = FastAPI(title="Pi Security Data API")
+
+
+def _get_real_ram_usage() -> dict:
+    """
+    CONFIRMED BUG, found via real hardware testing: the "ram" field in
+    /state's default response was hardcoded to all zeros and NOTHING
+    in this file ever overwrote it — RAM measurement was simply never
+    implemented, just stubbed as a placeholder that was never replaced.
+
+    This measures REAL memory via psutil. Honest limitation: the
+    original 4-category breakdown (os_streamlit_mb / face_recognition_mb
+    / opencv_camera_mb / mqtt_sensors_mb) assumed separate processes for
+    each subsystem — but main.py is ONE process doing face recognition
+    AND camera/OpenCV handling together, and MQTT was never actually
+    built (confirmed earlier in this project). A per-subsystem
+    breakdown this granular isn't achievable without instrumenting
+    main.py's own code to self-report — not something this endpoint
+    can measure from outside. Instead: finds main.py's actual process
+    by matching command-line args (main.py runs as a separate OS
+    process from this FastAPI server, confirmed throughout this
+    project), reports its real RSS memory as "face_recognition_mb"
+    (the single biggest real consumer), this server's own process as
+    "os_streamlit_mb", and explicitly zeros the two categories that
+    were never real subsystems to begin with — labeled honestly rather
+    than inventing fake numbers for them.
+    """
+    try:
+        total_mb = psutil.virtual_memory().total / (1024 * 1024)
+    except Exception:
+        total_mb = 4096  # fallback if psutil itself fails
+
+    this_process_mb = 0
+    main_process_mb = 0
+    try:
+        this_process_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+    except Exception:
+        pass
+
+    try:
+        for proc in psutil.process_iter(["pid", "cmdline", "memory_info"]):
+            cmdline = proc.info.get("cmdline") or []
+            if any("main.py" in str(arg) for arg in cmdline):
+                main_process_mb = proc.info["memory_info"].rss / (1024 * 1024)
+                break
+    except Exception:
+        pass
+
+    return {
+        "os_streamlit_mb":     round(this_process_mb, 1),
+        "face_recognition_mb": round(main_process_mb, 1),
+        # Honestly zeroed, not measured — see docstring above for why
+        # a finer-grained split isn't achievable from outside main.py.
+        "opencv_camera_mb":    0,
+        "mqtt_sensors_mb":     0,
+        "total_pi_ram_mb":     round(total_mb, 1),
+    }
 
 # Allow Streamlit Cloud (or any origin) to call this API.
 # Fine for a student project; for production you'd restrict allow_origins.
@@ -175,13 +232,7 @@ def get_state():
         "last_visitor_img": None,
         "last_event_time":  "—",
         "access_count":     0,
-        "ram": {
-            "os_streamlit_mb":     0,
-            "face_recognition_mb": 0,
-            "opencv_camera_mb":    0,
-            "mqtt_sensors_mb":     0,
-            "total_pi_ram_mb":     4096,
-        },
+        "ram": _get_real_ram_usage(),
     }
 
     if not os.path.exists(CSV_PATH):
