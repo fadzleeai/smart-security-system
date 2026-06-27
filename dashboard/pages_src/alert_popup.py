@@ -24,6 +24,7 @@ DESIGN NOTES (so future edits don't accidentally break the intent):
   at once — see get_active_alert()'s docstring in data_source.py for why.
 """
 
+import time
 import streamlit as st
 from data_source import get_active_alert, tag_stranger, stop_alarm
 
@@ -173,23 +174,43 @@ def _stranger_dialog(filename: str, img_url: str):
                 st.caption("Click Stop Alert again to retry, or close this dialog to leave it for now.")
 
 
-@st.dialog("🚪 Door Left Open", width="medium")
+DOOR_POPUP_COOLDOWN_SECONDS = 10 * 60  # 10 minutes, per explicit feedback
+
+
+@st.dialog("🚪 Door Left Open", width="medium", dismissible=False)
 def _door_dialog():
+    """
+    dismissible=False per explicit feedback: previously the X in the
+    corner was a second, unintended way to close this dialog alongside
+    the Stop Alert button — now Stop Alert is the ONLY way out, the X
+    is hidden, and click-outside/ESC are disabled too (confirmed via
+    the official st.dialog docs: dismissible=False hides the X AND
+    disables those other dismiss paths together, not just the X alone).
+    """
     st.warning("The door has been open for longer than expected.")
     st.markdown(
-        "If the door is still open after stopping this alert, "
-        "the popup will reappear."
+        f"If the door is still open, this will reappear in "
+        f"{DOOR_POPUP_COOLDOWN_SECONDS // 60} minutes."
     )
 
     if st.button("🔕 Stop Alert", use_container_width=True, type="primary"):
         result = stop_alarm()
         if result.get("success"):
-            # Deliberately NOT marked dismissed-for-session — per your
-            # requirement, this one should keep reappearing if the door
-            # is still open on the next check, unlike the stranger popup
-            # which is dismissed once tagged. Closing now; get_active_alert()
-            # will re-trigger it on the next autorefresh if door_alert is
-            # still True.
+            # BUGFIX, confirmed via real hardware testing: previously
+            # NOT marking any cooldown meant get_active_alert() would
+            # see door_alert still True on the VERY NEXT 3-second poll
+            # (since the physical door hadn't had time to actually
+            # close yet) and reopen this exact dialog instantly — from
+            # the person's perspective, clicking Stop Alert looked like
+            # it "did nothing", when really it correctly closed and
+            # then immediately reopened, faster than visibly perceptible.
+            # Recording a real timestamp here, checked in
+            # render_alert_popup() below, creates an actual cooldown
+            # window before the door popup can show again — separate
+            # from main.py's own 30s alarm-SOUND suppression, which
+            # only gates the speaker, not this dashboard popup's
+            # visibility at all.
+            st.session_state["_door_popup_dismissed_at"] = time.time()
             st.rerun()
         else:
             st.error(result.get("message", "Could not reach Pi to stop alarm."))
@@ -212,5 +233,18 @@ def render_alert_popup():
             _stranger_dialog(filename, alert.get("img_url"))
 
     elif alert["type"] == "door":
-        # No session-dismiss check here — see _door_dialog()'s comment.
-        _door_dialog()
+        # Cooldown check, per explicit feedback: only show this dialog
+        # again if DOOR_POPUP_COOLDOWN_SECONDS have genuinely passed
+        # since the last time Stop Alert was clicked — fixes the
+        # instant-reopen bug where clicking the button looked like it
+        # "did nothing" (it correctly closed, then immediately reopened
+        # on the very next 3s poll, since the physical door hadn't had
+        # time to actually close). dismissed_at being unset (first time
+        # ever) means no cooldown is active yet — show immediately.
+        dismissed_at = st.session_state.get("_door_popup_dismissed_at")
+        cooldown_active = (
+            dismissed_at is not None
+            and (time.time() - dismissed_at) < DOOR_POPUP_COOLDOWN_SECONDS
+        )
+        if not cooldown_active:
+            _door_dialog()
