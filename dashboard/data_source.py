@@ -723,3 +723,8 @@ def get_full_logs() -> pd.DataFrame:
         )
 
         # Motion column — door open = motion 
+        motion_display = df["event_type"].apply( lambda x: True if str(x) in ("visitor", "door") else False ) 
+        out = pd.DataFrame({ "Timestamp": ts, "Visitor": df["visitor_name"].replace("", "—"), "Motion": motion_display, "Auth result": df["auth_result"].replace("", "—"), "Threat": threat_display, "Door": df["door_status"].replace("", "—"), "Confidence": pd.to_numeric(df["confidence"], errors="coerce").round(2), })
+        return out 
+    except Exception: 
+        return empty
