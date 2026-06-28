@@ -456,16 +456,31 @@ def get_active_alert() -> dict:
     Single source of truth for "should the popup show right now," used
     by alert_popup.py regardless of which page is currently active.
 
-    Returns one of three shapes:
+    Returns one of four shapes:
       {"type": None}                                   — nothing active
+      {"type": "system_down", "seconds_ago": float | None}
       {"type": "stranger", "filename": ..., "img_url": ...}
       {"type": "door"}
 
-    Priority: a never-reviewed stranger takes priority over a stuck-open
-    door, since a specific unidentified person is generally the more
-    urgent thing for an owner to look at first. If neither condition is
-    true, or the Pi is unreachable, returns {"type": None} — the popup
-    must never show stale/fake alerts just because we can't reach the Pi.
+    Priority order, highest first:
+      1. system_down — if main.py itself has crashed/hung, checking for
+         strangers or door status is meaningless (the data would be
+         stale anyway), so this is checked FIRST, before anything else.
+      2. stranger — a specific unidentified person is generally the more
+         urgent thing for an owner to look at next.
+      3. door — checked last.
+    If none are true, or the Pi is genuinely unreachable at the network
+    level, returns {"type": None} — the popup must never show stale/
+    fake alerts just because we can't reach the Pi at all.
+
+    URGENT FIX, per explicit conversation: previously, if main.py
+    crashed while pi_server.py (a SEPARATE OS process) was still
+    running fine, is_pi_reachable() would report True — the network
+    connection to the Pi genuinely works — while the actual detection
+    system was silently dead with nobody told. This system_down check
+    deliberately runs even when is_pi_reachable() is True, since that
+    check alone can't distinguish "main.py is fine" from "main.py
+    crashed but pi_server.py didn't".
 
     BUG FIX: previously checked /state's last_visitor_img, which only
     ever reflects the SINGLE MOST RECENT visitor row. An authorized
@@ -478,6 +493,18 @@ def get_active_alert() -> dict:
     """
     if not is_pi_reachable():
         return {"type": None}
+
+    health_resp = _safe_get("/system/health")
+    if health_resp is not None:
+        try:
+            health = health_resp.json()
+            if not health.get("healthy", True):
+                return {
+                    "type": "system_down",
+                    "seconds_ago": health.get("last_alive_seconds_ago"),
+                }
+        except Exception:
+            pass
 
     resp = _safe_get("/stranger/pending")
     if resp is not None:
