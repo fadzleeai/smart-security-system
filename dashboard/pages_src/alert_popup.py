@@ -108,6 +108,13 @@ def _stranger_dialog(filename: str, img_url: str):
 
     st.markdown(f"**File:** `{filename}`")
     st.markdown("This person was not recognized. What would you like to do?")
+    st.caption(
+        "ℹ️ This popup is informational — the Pi already logged this "
+        "visit on its own. If you close this dashboard without acting, "
+        "the popup will simply close on its own once the person leaves "
+        "camera view; the photo stays available for review later in "
+        "the gallery either way."
+    )
 
     # Double-click guard: disables all three buttons the instant ANY of
     # them is clicked, until the rerun completes. Without this, a fast
@@ -216,6 +223,12 @@ def _door_dialog():
     st.markdown(
         f"If the door is still open, this will reappear in "
         f"{DOOR_POPUP_COOLDOWN_SECONDS // 60} minutes."
+    )
+    st.caption(
+        "ℹ️ This button silences the alert *as seen here*. The Pi keeps "
+        "watching the door independently — closing the door is what "
+        "permanently stops it, on hardware, regardless of whether this "
+        "dashboard is open or reachable."
     )
 
     if st.button("🔕 Stop Alert", use_container_width=True, type="primary"):
