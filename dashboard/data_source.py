@@ -83,6 +83,40 @@ THREAT_MAP = {
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def strip_markdown_indent(html: str) -> str:
+    """
+    CONFIRMED ROOT CAUSE (traced and fixed once already in app.py's
+    global CSS block, then found to ALSO affect page2_analytics.py's
+    timeline rendering — the SAME bug class in a second file that was
+    never connected to the first investigation): any multi-line
+    st.markdown(f\"\"\"...\"\"\") string written inside Python's own
+    indented code (a function, a for-loop, a with-block) inherits that
+    indentation on every line — often 8, 12, even 24+ spaces deep.
+    Markdown's spec treats ANY line indented 4+ spaces from a paragraph
+    start as a literal "indented code block", rendering it as plain
+    TEXT instead of interpreting it as HTML — even with
+    unsafe_allow_html=True set. This is exactly why a stray "</div>"
+    kept appearing as VISIBLE TEXT on Page 2's timeline: every line of
+    that f-string was indented 12-24 spaces (confirmed by direct
+    measurement), deep inside a for-loop inside a with-block.
+
+    Strips ALL leading whitespace from every line individually (not
+    textwrap.dedent()'s "common shared prefix" approach, which was
+    tried first for the app.py case and confirmed insufficient when a
+    string has multiple real nesting depths — see app.py's own comment
+    on this for the full history). HTML, like CSS, doesn't care about
+    leading whitespace for rendering, so this has zero visual effect
+    beyond fixing the actual bug.
+
+    Exported from data_source.py (not duplicated per-file) specifically
+    because this exact bug class could exist in ANY multi-line
+    st.markdown() call across the codebase that happens to sit inside
+    indented Python — centralizing the fix here means future page
+    files can reuse it rather than risk reintroducing the same bug.
+    """
+    return "\n".join(line.strip() if line.strip() else "" for line in html.split("\n"))
+
+
 def _safe_get(path: str):
     """
     GET request to Pi API.
