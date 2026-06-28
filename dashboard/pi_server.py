@@ -59,6 +59,14 @@ CSV_PATH               = os.path.join(PROJECT_DIR, "security_logs.csv")
 IMAGES_DIR             = os.path.join(PROJECT_DIR, "strangers")
 PENDING_AUTHORIZE_DIR  = os.path.join(PROJECT_DIR, "pending_authorize")
 ALARM_FLAG_PATH        = os.path.join(BASE_DIR, "alarm_dismiss.json")
+STRANGER_HEARTBEAT_PATH = os.path.join(BASE_DIR, "stranger_heartbeat.json")
+# How fresh the heartbeat must be to count as "still present" — a few
+# seconds wider than a single detection cycle, so one momentarily missed
+# frame (face turned slightly, motion blur, etc) doesn't flicker the
+# popup closed and reopened. Same proven pattern as
+# RECENT_EVENT_WINDOW_SECONDS below, just a tighter window since this is
+# about live presence, not "happened recently in general".
+STRANGER_PRESENCE_WINDOW_SECONDS = 5
 REVIEWED_STRANGERS_PATH = os.path.join(BASE_DIR, "reviewed_strangers.json")
 
 # How recent a detection event must be (in seconds) to count as "motion
@@ -420,6 +428,35 @@ def get_pending_stranger():
         return {"filename": basename}
 
     return {"filename": None}
+
+
+@app.get("/stranger/currently-present")
+def get_stranger_currently_present():
+    """
+    NEW, per explicit feedback: the popup previously kept reappearing
+    until manually tagged, regardless of whether the person had actually
+    left — they specifically want it tied to LIVE camera presence
+    instead, stopping the moment the person leaves frame even if never
+    tagged. Reads STRANGER_HEARTBEAT_PATH, written by main.py EVERY
+    FRAME an unrecognized face is detected (see main.py's detection
+    loop) — checks the file's mtime, not its content, since "is it
+    recent" is all that matters here. A few seconds of slack
+    (STRANGER_PRESENCE_WINDOW_SECONDS) absorbs one momentarily missed
+    frame without flickering the popup open/closed.
+
+    Returns {"present": bool} — note this answers "is SOME unrecognized
+    face in frame right now", not "is THIS SPECIFIC stranger from
+    /stranger/pending still there" — main.py doesn't currently track
+    per-individual presence, only "any stranger, right now, yes/no".
+    """
+    if not os.path.exists(STRANGER_HEARTBEAT_PATH):
+        return {"present": False}
+    try:
+        mtime = os.path.getmtime(STRANGER_HEARTBEAT_PATH)
+        is_fresh = (time.time() - mtime) < STRANGER_PRESENCE_WINDOW_SECONDS
+        return {"present": is_fresh}
+    except Exception:
+        return {"present": False}
 
 
 @app.post("/stranger/tag")
