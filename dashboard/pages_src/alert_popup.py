@@ -242,6 +242,46 @@ def _door_dialog():
             st.caption("Click Stop Alert again to retry.")
 
 
+SYSTEM_DOWN_COOLDOWN_SECONDS = 5 * 60  # same cooldown pattern as the door alert
+
+
+@st.dialog("⚠️ Detection System Not Responding", width="medium", dismissible=False)
+def _system_down_dialog(seconds_ago):
+    """
+    URGENT FIX, per explicit conversation: surfaces the single worst
+    real-world failure mode discussed — main.py crashing/hanging
+    silently, with nothing telling the owner the entire detection
+    system (door watcher, speaker, stranger detection) has stopped.
+
+    No "Stop Alert" button makes sense here the way it does for the
+    other two dialogs — there's no alarm sound to silence, and clicking
+    a button can't actually restart a crashed process from here. This
+    is purely informational: an Acknowledge button just confirms the
+    owner has SEEN the warning, starting the same cooldown pattern as
+    the door dialog so it doesn't re-show every 3 seconds while they
+    go investigate, but will resume reminding them if the system is
+    STILL down after the cooldown — same reasoning as the door alert
+    not staying silenced for a problem that hasn't actually been fixed.
+    """
+    st.error(
+        "The Raspberry Pi is reachable, but the detection process "
+        "(main.py) hasn't reported in. The door watcher, speaker "
+        "warnings, and stranger detection may all be stopped."
+    )
+    if seconds_ago is not None:
+        st.caption(f"Last confirmed alive: {seconds_ago:.0f} seconds ago.")
+    st.markdown(
+        "**What to check:** is main.py still running on the Pi? "
+        "(`systemctl status` or check for the process directly.) "
+        "A camera disconnect, unhandled crash, or power issue could "
+        "cause this."
+    )
+
+    if st.button("Acknowledge", use_container_width=True, type="primary"):
+        st.session_state["_system_down_acked_at"] = time.time()
+        st.rerun()
+
+
 def render_alert_popup():
     """
     Call this once from app.py, before rendering the active page.
@@ -252,7 +292,16 @@ def render_alert_popup():
 
     alert = get_active_alert()
 
-    if alert["type"] == "stranger":
+    if alert["type"] == "system_down":
+        acked_at = st.session_state.get("_system_down_acked_at")
+        cooldown_active = (
+            acked_at is not None
+            and (time.time() - acked_at) < SYSTEM_DOWN_COOLDOWN_SECONDS
+        )
+        if not cooldown_active:
+            _system_down_dialog(alert.get("seconds_ago"))
+
+    elif alert["type"] == "stranger":
         filename = alert["filename"]
         if not _is_dismissed_this_session(filename):
             _stranger_dialog(filename, alert.get("img_url"))
