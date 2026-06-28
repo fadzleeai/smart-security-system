@@ -121,6 +121,24 @@ ALARM_FLAG_PATH = os.environ.get(
     "/home/admin/smart-security-system/dashboard/alarm_dismiss.json",
 )
 
+# New, per explicit feedback: the stranger popup previously kept
+# re-appearing until the owner manually tagged it, regardless of
+# whether the person had actually left — confirmed they want it tied
+# to LIVE camera presence instead, stopping the moment the person
+# leaves frame even if never tagged. main.py is the only process that
+# actually knows "is an unrecognized face in frame RIGHT NOW" (the
+# current_results variable in the detection loop) — pi_server.py runs
+# as a separate OS process and can't read that variable directly, so
+# this file is the bridge: touched every frame a stranger is detected,
+# left stale (not touched) the moment they leave. pi_server.py checks
+# this file's mtime — recent means "still here", stale means "gone" —
+# same proven pattern as RECENT_EVENT_WINDOW_SECONDS already used for
+# motion_detected/camera_status in pi_server.py's /state endpoint.
+STRANGER_HEARTBEAT_PATH = os.environ.get(
+    "STRANGER_HEARTBEAT_PATH",
+    "/home/admin/smart-security-system/dashboard/stranger_heartbeat.json",
+)
+
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
@@ -586,6 +604,23 @@ def main():
                             break  # stop processing other faces this frame
 
                         if result["action"] == "DENIED":
+                            # Heartbeat write happens EVERY frame a stranger
+                            # is detected, deliberately NOT gated by the
+                            # same 10s save-cooldown below — that cooldown
+                            # is specifically about not spamming new PHOTOS,
+                            # but presence itself needs updating as often as
+                            # the detection loop actually runs, so "gone"
+                            # can be detected within roughly one detection
+                            # cycle of them actually leaving, not up to 10s
+                            # late. Wrapped in try/except since a failure
+                            # to write this file should never crash the
+                            # live detection loop over something this minor.
+                            try:
+                                with open(STRANGER_HEARTBEAT_PATH, "w") as hb:
+                                    json.dump({"last_seen": time.time()}, hb)
+                            except Exception as e:
+                                logger.error(f"[HEARTBEAT] Failed to write: {e}")
+
                             now = time.time()
                             if now - last_stranger_save > 10:
                                 saved_filename = save_stranger(frame, result["risk"], logger)
