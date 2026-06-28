@@ -60,6 +60,14 @@ IMAGES_DIR             = os.path.join(PROJECT_DIR, "strangers")
 PENDING_AUTHORIZE_DIR  = os.path.join(PROJECT_DIR, "pending_authorize")
 ALARM_FLAG_PATH        = os.path.join(BASE_DIR, "alarm_dismiss.json")
 STRANGER_HEARTBEAT_PATH = os.path.join(BASE_DIR, "stranger_heartbeat.json")
+SYSTEM_HEARTBEAT_PATH   = os.path.join(BASE_DIR, "system_heartbeat.json")
+# Wider window than STRANGER_PRESENCE_WINDOW_SECONDS deliberately — this
+# heartbeat is throttled to a 5s write interval in main.py itself, so
+# checking with only a few seconds of slack here would cause false
+# "system down" alarms from normal write-timing jitter, not an actual
+# crash. 30s genuinely means several consecutive missed writes, not one
+# slightly-late one.
+SYSTEM_HEARTBEAT_STALE_SECONDS = 30
 # How fresh the heartbeat must be to count as "still present" — a few
 # seconds wider than a single detection cycle, so one momentarily missed
 # frame (face turned slightly, motion blur, etc) doesn't flicker the
@@ -457,6 +465,44 @@ def get_stranger_currently_present():
         return {"present": is_fresh}
     except Exception:
         return {"present": False}
+
+
+@app.get("/system/health")
+def get_system_health():
+    """
+    URGENT FIX, per explicit conversation: previously, if main.py
+    crashed or hung for ANY reason, the entire detection system would
+    silently stop — door watcher, speaker, stranger detection, all of
+    it — with NOTHING on the dashboard telling the owner it happened.
+    This was identified as the single worst real-world failure mode,
+    since every other limitation (sensor faults, tunnel drops) assumes
+    main.py is still alive at all.
+
+    Reads SYSTEM_HEARTBEAT_PATH, written by main.py on EVERY iteration
+    of its main camera loop (throttled to once every 5s to limit SD
+    card writes) — checks the file's mtime. If it's older than
+    SYSTEM_HEARTBEAT_STALE_SECONDS (30s — several missed writes, not
+    one slightly-late one), the detection loop is genuinely stuck or
+    dead, NOT just idle waiting for motion (idle is normal; the loop
+    not running at all is not).
+
+    Returns {"healthy": bool, "last_alive_seconds_ago": float | None}.
+    If the heartbeat file doesn't exist at all (e.g. running an older
+    main.py that doesn't write it yet, or main.py has literally never
+    started), reports unhealthy rather than assuming the best —
+    "we don't know" must never be displayed as "everything's fine".
+    """
+    if not os.path.exists(SYSTEM_HEARTBEAT_PATH):
+        return {"healthy": False, "last_alive_seconds_ago": None}
+    try:
+        mtime = os.path.getmtime(SYSTEM_HEARTBEAT_PATH)
+        age = time.time() - mtime
+        return {
+            "healthy": age < SYSTEM_HEARTBEAT_STALE_SECONDS,
+            "last_alive_seconds_ago": round(age, 1),
+        }
+    except Exception:
+        return {"healthy": False, "last_alive_seconds_ago": None}
 
 
 @app.post("/stranger/tag")
