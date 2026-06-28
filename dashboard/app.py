@@ -319,8 +319,6 @@ st.markdown("<style>" + _palette_css + """
         min-width: 230px; max-width: 230px;
         background: var(--bg-card-alt) !important;
     }
-        background: var(--bg-card-alt) !important;
-    }
     [data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
 
     /* All sidebar buttons — left-aligned, no border, full width, fully
