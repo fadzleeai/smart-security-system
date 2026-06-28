@@ -139,6 +139,21 @@ STRANGER_HEARTBEAT_PATH = os.environ.get(
     "/home/admin/smart-security-system/dashboard/stranger_heartbeat.json",
 )
 
+# URGENT FIX, per explicit conversation: if main.py crashes or hangs for
+# ANY reason (unhandled exception, camera disconnect, power blip), the
+# ENTIRE detection system — door watcher, speaker, stranger detection —
+# silently stops, with NOTHING telling the owner it happened. This is
+# the single worst-case failure mode discussed: every other limitation
+# (sensor faults, tunnel drops) assumes main.py is still running at all;
+# this is the one where that assumption itself breaks. Touched on EVERY
+# iteration of the main camera loop below (not gated by motion/scanning
+# state), so a stale timestamp genuinely means "the process itself is
+# stuck or dead", not just "nothing happened recently".
+SYSTEM_HEARTBEAT_PATH = os.environ.get(
+    "SYSTEM_HEARTBEAT_PATH",
+    "/home/admin/smart-security-system/dashboard/system_heartbeat.json",
+)
+
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
@@ -497,6 +512,7 @@ def main():
     current_results = []
     spoken_this_frame = set()
     entry_lockout = threading.Event()  # set = system paused waiting for door open+close
+    last_system_heartbeat = 0  # throttle — see write_system_heartbeat() below
 
     # Start the independent door watcher (catches "open, nobody recognized")
     threading.Thread(
@@ -518,6 +534,22 @@ def main():
                 logger.error("Failed to read from camera.")
                 time.sleep(0.5)
                 continue
+
+            # System heartbeat — touched here, after a successful camera
+            # read, NOT gated by motion/scanning state, so a stale
+            # timestamp genuinely means the whole process is stuck or
+            # dead, not just "nothing happened recently" (that distinction
+            # already exists separately via last_event_time in pi_server.py).
+            # Throttled to once every 5s (not every single frame) to avoid
+            # excessive write wear on the Pi's SD card over a 24/7 runtime.
+            now_hb = time.time()
+            if now_hb - last_system_heartbeat > 5:
+                try:
+                    with open(SYSTEM_HEARTBEAT_PATH, "w") as hb:
+                        json.dump({"last_alive": now_hb}, hb)
+                    last_system_heartbeat = now_hb
+                except Exception as e:
+                    logger.error(f"[SYSTEM-HEARTBEAT] Failed to write: {e}")
 
             # 2. CHECK IF MOTION WAS DETECTED
             if motion_event.is_set():
