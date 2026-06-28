@@ -6,7 +6,7 @@ Page 2 — Visitor analytics & stranger gallery
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from data_source import get_today_summary, get_activity_timeline, get_stranger_gallery
+from data_source import get_today_summary, get_activity_timeline, get_stranger_gallery, strip_markdown_indent
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -136,10 +136,10 @@ def _stranger_card(item: dict):
     # actually replaced despite the comment saying to. img_path comes from
     # get_stranger_gallery() in data_source.py, pointing at the Pi's real
     # /images/<filename> route.
-    st.markdown(f"""
+    st.markdown(strip_markdown_indent(f"""
     <div style="{border} background:{bg}; border-radius:8px 8px 0 0;
                  padding:8px; text-align:center;">
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
     if item.get("img_path"):
         try:
@@ -151,13 +151,13 @@ def _stranger_card(item: dict):
         st.markdown('<div style="font-size:2rem;padding:20px">👤</div>',
                     unsafe_allow_html=True)
 
-    st.markdown(f"""
+    st.markdown(strip_markdown_indent(f"""
       <div class="{label_class}" style="font-size:0.78rem;font-weight:600;{label_color_inline}">{item['label']}</div>
       <div class="label-secondary" style="font-size:0.72rem;margin-top:2px;margin-bottom:8px">
         {item['time']} &bull; {item['visits']} visit(s)
       </div>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 
 # ── Main render ───────────────────────────────────────────────────────────────
@@ -200,7 +200,7 @@ def render():
             result_b = _result_badge(item["result"])
             threat_b = _threat_badge(item["threat"])
 
-            st.markdown(f"""
+            st.markdown(strip_markdown_indent(f"""
             <div class="divider-border" style="display:flex;gap:10px;align-items:flex-start;
                         padding:8px 0;">
               <span class="label-secondary" style="font-size:0.75rem;min-width:62px;padding-top:3px">
@@ -216,7 +216,7 @@ def render():
                 </div>
               </div>
             </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
 
     # ── Stranger gallery ──────────────────────────────────────────────────────
     st.markdown("")
