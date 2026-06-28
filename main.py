@@ -327,12 +327,19 @@ def unattended_door_watcher(door_sensor, speaker, logger, lockout_event):
     for as long as the door remains open past UNATTENDED_DOOR_THRESHOLD
     without an authorized entry in progress.
 
-    Checks ALARM_FLAG_PATH (written by pi_server.py's POST /alarm/stop,
-    triggered from the dashboard's Stop Alert popup button) right before
-    each scheduled alarm — if present, consumes it and skips that one
-    cycle only. The door alarm resumes on its own next cycle if the door
-    is still open, since a dismiss should silence the CURRENT alert, not
-    disable future ones for a door that's still genuinely open.
+    BUGFIX, confirmed via real hardware testing: ALARM_FLAG_PATH used to
+    only be checked ONCE PER ALARM CYCLE — i.e. only at the exact moment
+    next_alarm_at fired, roughly every UNATTENDED_DOOR_REPEAT (~35s)
+    seconds. Clicking "Stop Alert" on the dashboard wrote the flag file
+    correctly and immediately (confirmed directly via curl), but this
+    loop wouldn't actually LOOK at that file until the next scheduled
+    alarm — meaning from the person's perspective, clicking the button
+    appeared to do nothing for up to ~35 seconds. Now checks the flag on
+    EVERY loop iteration (every 0.5s, same as the loop's own sleep), so
+    a dismiss takes effect almost immediately — if it's present, it's
+    consumed right away and next_alarm_at is pushed forward by the same
+    REPEAT interval, exactly as if that alarm had already fired and been
+    dismissed, without waiting for the actual scheduled time to arrive.
     """
     was_open          = False
     open_since         = None
@@ -340,6 +347,21 @@ def unattended_door_watcher(door_sensor, speaker, logger, lockout_event):
 
     while True:
         is_open = door_sensor.is_open()
+
+        # Check for a dashboard dismiss on EVERY iteration, not just when
+        # next_alarm_at fires — this is the actual fix for the ~35s delay.
+        # Only matters while an alarm cycle is actually pending (door
+        # open, not in lockout); checking when there's nothing scheduled
+        # would just silently consume a flag with no effect either way,
+        # so it's gated the same way the alarm-check itself is.
+        if is_open and not lockout_event.is_set() and next_alarm_at is not None:
+            if os.path.exists(ALARM_FLAG_PATH):
+                try:
+                    os.remove(ALARM_FLAG_PATH)
+                    logger.info("[DOOR-WATCH] Alarm dismissed via dashboard — pushing next alarm forward.")
+                    next_alarm_at = time.time() + UNATTENDED_DOOR_REPEAT
+                except Exception as e:
+                    logger.error(f"[DOOR-WATCH] Failed to consume dismiss flag: {e}")
 
         if is_open and not was_open:
             # Door just transitioned closed -> open
@@ -358,31 +380,15 @@ def unattended_door_watcher(door_sensor, speaker, logger, lockout_event):
         elif is_open and not lockout_event.is_set():
             # Door has been continuously open; check if it's unattended too long
             if next_alarm_at is not None and time.time() >= next_alarm_at:
-                # Check for a dashboard-requested dismiss BEFORE speaking.
-                # Consuming the flag (deleting it) means this only
-                # suppresses THIS scheduled alarm — if the door is still
-                # open UNATTENDED_DOOR_REPEAT seconds later, the alarm
-                # resumes normally, matching your decision that dismissing
-                # must not silence a still-open door permanently.
-                dismissed = False
-                if os.path.exists(ALARM_FLAG_PATH):
-                    try:
-                        os.remove(ALARM_FLAG_PATH)
-                        dismissed = True
-                        logger.info("[DOOR-WATCH] Alarm dismissed via dashboard — skipping this cycle.")
-                    except Exception as e:
-                        logger.error(f"[DOOR-WATCH] Failed to consume dismiss flag: {e}")
-
-                if not dismissed:
-                    logger.warning(
-                        "[DOOR-WATCH] Door open %ds with no authorized entry — ALARM",
-                        int(time.time() - open_since),
-                    )
-                    speaker.say("Warning. Door has been left open. Please check the entrance.")
-                    write_log_row(
-                        logger, event_type="door",
-                        threat_level="Suspicious", door_status="Open",
-                    )
+                logger.warning(
+                    "[DOOR-WATCH] Door open %ds with no authorized entry — ALARM",
+                    int(time.time() - open_since),
+                )
+                speaker.say("Warning. Door has been left open. Please check the entrance.")
+                write_log_row(
+                    logger, event_type="door",
+                    threat_level="Suspicious", door_status="Open",
+                )
                 next_alarm_at = time.time() + UNATTENDED_DOOR_REPEAT
 
         was_open = is_open
