@@ -66,7 +66,7 @@ def _auth_bar_chart(summary: dict) -> go.Figure:
         df["hour"] = df["timestamp"].dt.hour
         hourly = df.groupby(["hour","auth_result"]).size().unstack(fill_value=0)
     """
-    categories = ["Authorized", "Unknown", "Suspicious"]
+    categories = ["Authorized", "Stranger", "Suspicious"]
     values     = [summary["authorized"], summary["unknown"], summary["suspicious"]]
     colors     = ["#10b981", "#f59e0b", "#ef4444"]
 
@@ -173,7 +173,7 @@ def render():
     m2.metric("Authorized",        summary["authorized"],
               delta=f'{summary["authorized"]/max(summary["total"],1)*100:.0f}%',
               delta_color="normal")
-    m3.metric("Unknown",           summary["unknown"])
+    m3.metric("Stranger",           summary["unknown"])
     m4.metric("Suspicious",        summary["suspicious"],
               delta="flagged" if summary["suspicious"] > 0 else None,
               delta_color="inverse")
