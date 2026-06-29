@@ -101,8 +101,32 @@ def _is_dismissed_this_session(key: str) -> bool:
 
 @st.dialog("🚨 Stranger Detected", width="large")
 def _stranger_dialog(filename: str, img_url: str):
+    """
+    BUGFIX, confirmed via explicit feedback: st.image(use_container_width
+    =True) scales the image to fill the dialog's WIDTH, but its height
+    then follows the photo's own aspect ratio — since these camera
+    photos are wide/landscape (confirmed across every screenshot in
+    this project), a wide dialog + full-width image could produce a
+    result tall enough to push the action buttons below the visible
+    screen, especially on a phone, forcing a scroll before the buttons
+    were even reachable. Replaced st.image() with a raw <img> wrapped
+    in a max-height CSS rule — object-fit:contain keeps the full photo
+    visible without cropping (cover would crop edges off), and the cap
+    (45vh — 45% of the actual visible browser height, not a fixed
+    pixel number) means it adapts to the real screen size rather than
+    overflowing a short phone screen the same way a fixed px value
+    could.
+    """
     if img_url:
-        st.image(img_url, use_container_width=True)
+        st.markdown(
+            f'<div style="width:100%;max-height:45vh;overflow:hidden;'
+            f'border-radius:10px;display:flex;align-items:center;'
+            f'justify-content:center;background:var(--bg-card-alt);">'
+            f'<img src="{img_url}" style="width:100%;max-height:45vh;'
+            f'object-fit:contain;">'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.warning("Image unavailable.")
 
@@ -114,6 +138,14 @@ def _stranger_dialog(filename: str, img_url: str):
         "the popup will simply close on its own once the person leaves "
         "camera view; the photo stays available for review later in "
         "the gallery either way."
+    )
+    st.caption(
+        "⚠️ **Authorize does not stop future alerts for this person.** "
+        "It only flags the photo for manual review — adding someone to "
+        "the recognized-faces list is a separate, deliberate step "
+        "(train_model.py), not done automatically here. The same person "
+        "will still trigger an alert next time until that manual step "
+        "is done."
     )
 
     # Double-click guard: disables all three buttons the instant ANY of
