@@ -1,0 +1,16 @@
+[Unit]
+Description=Smart Security System - Detection Loop (main.py)
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/smart-security-system
+ExecStart=/home/admin/smart-security-system/.venv_prod/bin/python3 /home/admin/smart-security-system/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

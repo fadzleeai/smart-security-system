@@ -1,0 +1,12 @@
+[Unit]
+Description=Pi Security API
+After=network.target
+
+[Service]
+ExecStart=/home/admin/smart-security-system/.server_venv/bin/python3 /home/admin/smart-security-system/dashboard/pi_server.py
+WorkingDirectory=/home/admin/smart-security-system/dashboard
+Restart=always
+User=admin
+
+[Install]
+WantedBy=multi-user.target
