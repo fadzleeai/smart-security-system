@@ -154,6 +154,18 @@ SYSTEM_HEARTBEAT_PATH = os.environ.get(
     "/home/admin/smart-security-system/dashboard/system_heartbeat.json",
 )
 
+# How often a NEW photo/CSV row gets created for the SAME lingering
+# unrecognized person. CHANGED per explicit feedback: at the previous
+# 10s interval, someone standing in frame for a couple of minutes
+# produced a new "pending stranger" entry every 10 seconds — since each
+# one has a distinct filename, /stranger/pending treats EACH as a
+# separate, fresh thing needing review, so the dashboard popup kept
+# reappearing for what was really the same single visit. This does NOT
+# affect how fast a genuinely NEW/different person triggers their own
+# first alert — that's still immediate, this only throttles REPEAT
+# saves for one continuous, ongoing detection of the same person.
+STRANGER_SAVE_INTERVAL_SECONDS = 60
+
 def load_config() -> dict:
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
@@ -637,15 +649,17 @@ def main():
 
                         if result["action"] == "DENIED":
                             # Heartbeat write happens EVERY frame a stranger
-                            # is detected, deliberately NOT gated by the
-                            # same 10s save-cooldown below — that cooldown
-                            # is specifically about not spamming new PHOTOS,
-                            # but presence itself needs updating as often as
-                            # the detection loop actually runs, so "gone"
-                            # can be detected within roughly one detection
-                            # cycle of them actually leaving, not up to 10s
-                            # late. Wrapped in try/except since a failure
-                            # to write this file should never crash the
+                            # is detected, deliberately NOT gated by
+                            # STRANGER_SAVE_INTERVAL_SECONDS below — that
+                            # cooldown is specifically about not spamming
+                            # new PHOTOS for the same lingering person,
+                            # but presence itself needs updating as often
+                            # as the detection loop actually runs, so
+                            # "gone" can be detected within roughly one
+                            # detection cycle of them actually leaving,
+                            # not up to a full save-interval late.
+                            # Wrapped in try/except since a failure to
+                            # write this file should never crash the
                             # live detection loop over something this minor.
                             try:
                                 with open(STRANGER_HEARTBEAT_PATH, "w") as hb:
@@ -654,7 +668,7 @@ def main():
                                 logger.error(f"[HEARTBEAT] Failed to write: {e}")
 
                             now = time.time()
-                            if now - last_stranger_save > 10:
+                            if now - last_stranger_save > STRANGER_SAVE_INTERVAL_SECONDS:
                                 saved_filename = save_stranger(frame, result["risk"], logger)
                                 last_stranger_save = now
                                 if saved_filename:
