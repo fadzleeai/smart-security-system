@@ -141,12 +141,12 @@ def _stranger_dialog(filename: str, img_url: str):
                 st.error(result.get("message", "Failed to tag."))
 
     with col2:
-        if st.button("❌ Label Unknown", use_container_width=True, disabled=action_in_progress,
-                      help="Confirms this as an unknown visitor needing further review"):
+        if st.button("❌ Label as Stranger", use_container_width=True, disabled=action_in_progress,
+                      help="Confirms this as a stranger needing further review"):
             _mark_tracked("_in_progress_strangers", filename, True)
             result = tag_stranger(filename, "unknown_reviewed")
             if result.get("success"):
-                st.success("Tagged as unknown.")
+                st.success("Tagged as stranger.")
                 _dismiss_for_session(filename)
                 st.rerun()
             else:
