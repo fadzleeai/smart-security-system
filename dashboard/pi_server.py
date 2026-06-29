@@ -516,7 +516,7 @@ def tag_stranger(filename: str, label: str):
                              later (does NOT auto-register the face —
                              that's a deliberate, separate manual step
                              via train_model.py, not done here).
-      "unknown_reviewed"  — owner clicked either "Label as Unknown" or
+      "unknown_reviewed"  — owner clicked either "Label as Stranger" or
                              "Stop alert" — both end up tagged the same
                              way per your decision: needs further review,
                              but the photo stays in strangers/ as-is.
@@ -561,7 +561,7 @@ def tag_stranger(filename: str, label: str):
                 if not file_exists:
                     f.write("timestamp,event_type,visitor_name,auth_result,threat_level,door_status,confidence,img_file\n")
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"{timestamp},visitor,Unknown,{label},,,,{safe_name}\n")
+                f.write(f"{timestamp},visitor,Stranger,{label},,,,{safe_name}\n")
                 f.flush()
                 os.fsync(f.fileno())
             finally:
