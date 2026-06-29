@@ -259,7 +259,7 @@ def _fetch_logs_df() -> pd.DataFrame:
                 # is meaningfully different information for the audit
                 # log than the original denial event itself.
                 "authorize_pending": "Pending Authorization",
-                "unknown_reviewed":  "Reviewed — Unknown",
+                "unknown_reviewed":  "Reviewed — Stranger",
             })
 
         return df.sort_values("timestamp", ascending=False)
@@ -743,7 +743,7 @@ def get_stranger_gallery() -> list:
                     pass
 
         result.append({
-            "label":         f"Unknown — {fname}",
+            "label":         f"Stranger — {fname}",
             "time":          time_str,
             "visits":        visits,
             "img_path":      _pi_image_url(fname),
