@@ -8,6 +8,29 @@ Run with:
 
 import streamlit as st
 
+
+def _strip_css_indent(css: str) -> str:
+    """
+    Strips ALL leading whitespace from every line, individually — NOT
+    textwrap.dedent()'s "common shared prefix" approach, which was
+    tried first and CONFIRMED (via a real AppTest run inspecting the
+    actual generated string) to leave most lines still indented 4+
+    spaces. Root issue: this CSS has two real nesting depths baked in
+    by Python's own source formatting (e.g. ":root {" at 4 spaces,
+    its "--bg-page: ...;" properties at 8 spaces) — dedent() only
+    strips the SMALLEST common indentation across the whole string (4,
+    matching ":root {"), leaving the deeper 8-space lines with 4
+    leftover spaces — still ≥4, still triggering Markdown's "indented
+    code block" rule that was the actual root cause of the entire
+    "</div> renders as visible text" bug. Stripping every line
+    individually sidesteps that entirely, regardless of how many
+    nesting depths the original Python source has. Cosmetic-only loss:
+    the raw CSS source becomes flush-left instead of nested — CSS
+    itself doesn't care about whitespace, so this has zero effect on
+    the actual styling, only on how the string looks if printed raw.
+    """
+    return "\n".join(line.strip() if line.strip() else "" for line in css.split("\n"))
+
 st.set_page_config(
     page_title="AI Visitor Security Dashboard",
     page_icon="🔒",
@@ -130,7 +153,30 @@ else:
 # sat outside any <style> tag entirely and rendered as literal visible
 # page text (confirmed from a live screenshot showing the raw CSS as
 # text content at the top of the page, not applied as styling at all).
-st.markdown("<style>" + _palette_css + """
+#
+# ROOT CAUSE FINALLY CONFIRMED, via direct browser DOM inspection: every
+# line of this CSS block is indented 4+ spaces (inherited from Python's
+# own code indentation) — and Markdown's spec treats ANY line indented
+# 4+ spaces from a paragraph start as a literal "indented code block",
+# rendering it as plain TEXT rather than interpreting it as HTML, even
+# with unsafe_allow_html=True set. This is why the entire <style> block
+# was visible as literal page text (the "</div>" mystery was just one
+# substring inside that wall of text, at whatever scroll position it
+# happened to land). Small single-line f-string divs elsewhere in the
+# codebase (badges, alert banners) never hit this, since they have zero
+# leading whitespace — only this large, Python-indented multi-line
+# block did.
+#
+# textwrap.dedent() was tried first and CONFIRMED, via an actual AppTest
+# run inspecting the real generated string, to NOT fully fix this — it
+# only strips the smallest COMMON indentation across the whole string,
+# but this CSS has two genuine nesting depths (":root {" at 4 spaces,
+# its "--xxx: ...;" properties at 8 spaces), so dedent() only removed 4
+# of the 8, leaving those property lines still at 4 — still triggering
+# the same bug. _strip_css_indent() (defined above) strips every line's
+# leading whitespace individually instead, which is robust regardless
+# of how many nesting depths exist.
+_css_rest = _strip_css_indent("""
     /* Main content padding — top increased from 1rem to clear Streamlit
        Cloud's platform bar (Share/Star/Edit/GitHub/⋮), which sits in a
        fixed strip above the app and isn't controlled by this app's code. */
@@ -319,8 +365,6 @@ st.markdown("<style>" + _palette_css + """
         min-width: 230px; max-width: 230px;
         background: var(--bg-card-alt) !important;
     }
-        background: var(--bg-card-alt) !important;
-    }
     [data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
 
     /* All sidebar buttons — left-aligned, no border, full width, fully
@@ -468,7 +512,19 @@ st.markdown("<style>" + _palette_css + """
     .track-bg { background: var(--bg-card-alt); }
     .divider-border { border-color: var(--bg-card-alt) !important; }
 </style>
-""", unsafe_allow_html=True)
+""")
+
+# Each piece (the <style> literal, _palette_css, and _css_rest) now has
+# every line's leading whitespace stripped individually via
+# _strip_css_indent() — confirmed via a real AppTest run to leave zero
+# lines at 4+ space indentation, unlike the textwrap.dedent() attempt
+# tried first, which only handled ONE of the two real nesting depths
+# present in this CSS (see _strip_css_indent()'s docstring above for
+# the full explanation).
+st.markdown(
+    "<style>" + _strip_css_indent(_palette_css) + _css_rest,
+    unsafe_allow_html=True,
+)
 
 # ── Page imports ──────────────────────────────────────────────────────────────
 from pages_src.page1_realtime  import render as render_page1

@@ -59,6 +59,22 @@ CSV_PATH               = os.path.join(PROJECT_DIR, "security_logs.csv")
 IMAGES_DIR             = os.path.join(PROJECT_DIR, "strangers")
 PENDING_AUTHORIZE_DIR  = os.path.join(PROJECT_DIR, "pending_authorize")
 ALARM_FLAG_PATH        = os.path.join(BASE_DIR, "alarm_dismiss.json")
+STRANGER_HEARTBEAT_PATH = os.path.join(BASE_DIR, "stranger_heartbeat.json")
+SYSTEM_HEARTBEAT_PATH   = os.path.join(BASE_DIR, "system_heartbeat.json")
+# Wider window than STRANGER_PRESENCE_WINDOW_SECONDS deliberately — this
+# heartbeat is throttled to a 5s write interval in main.py itself, so
+# checking with only a few seconds of slack here would cause false
+# "system down" alarms from normal write-timing jitter, not an actual
+# crash. 30s genuinely means several consecutive missed writes, not one
+# slightly-late one.
+SYSTEM_HEARTBEAT_STALE_SECONDS = 30
+# How fresh the heartbeat must be to count as "still present" — a few
+# seconds wider than a single detection cycle, so one momentarily missed
+# frame (face turned slightly, motion blur, etc) doesn't flicker the
+# popup closed and reopened. Same proven pattern as
+# RECENT_EVENT_WINDOW_SECONDS below, just a tighter window since this is
+# about live presence, not "happened recently in general".
+STRANGER_PRESENCE_WINDOW_SECONDS = 5
 REVIEWED_STRANGERS_PATH = os.path.join(BASE_DIR, "reviewed_strangers.json")
 
 # How recent a detection event must be (in seconds) to count as "motion
@@ -420,6 +436,73 @@ def get_pending_stranger():
         return {"filename": basename}
 
     return {"filename": None}
+
+
+@app.get("/stranger/currently-present")
+def get_stranger_currently_present():
+    """
+    NEW, per explicit feedback: the popup previously kept reappearing
+    until manually tagged, regardless of whether the person had actually
+    left — they specifically want it tied to LIVE camera presence
+    instead, stopping the moment the person leaves frame even if never
+    tagged. Reads STRANGER_HEARTBEAT_PATH, written by main.py EVERY
+    FRAME an unrecognized face is detected (see main.py's detection
+    loop) — checks the file's mtime, not its content, since "is it
+    recent" is all that matters here. A few seconds of slack
+    (STRANGER_PRESENCE_WINDOW_SECONDS) absorbs one momentarily missed
+    frame without flickering the popup open/closed.
+
+    Returns {"present": bool} — note this answers "is SOME unrecognized
+    face in frame right now", not "is THIS SPECIFIC stranger from
+    /stranger/pending still there" — main.py doesn't currently track
+    per-individual presence, only "any stranger, right now, yes/no".
+    """
+    if not os.path.exists(STRANGER_HEARTBEAT_PATH):
+        return {"present": False}
+    try:
+        mtime = os.path.getmtime(STRANGER_HEARTBEAT_PATH)
+        is_fresh = (time.time() - mtime) < STRANGER_PRESENCE_WINDOW_SECONDS
+        return {"present": is_fresh}
+    except Exception:
+        return {"present": False}
+
+
+@app.get("/system/health")
+def get_system_health():
+    """
+    URGENT FIX, per explicit conversation: previously, if main.py
+    crashed or hung for ANY reason, the entire detection system would
+    silently stop — door watcher, speaker, stranger detection, all of
+    it — with NOTHING on the dashboard telling the owner it happened.
+    This was identified as the single worst real-world failure mode,
+    since every other limitation (sensor faults, tunnel drops) assumes
+    main.py is still alive at all.
+
+    Reads SYSTEM_HEARTBEAT_PATH, written by main.py on EVERY iteration
+    of its main camera loop (throttled to once every 5s to limit SD
+    card writes) — checks the file's mtime. If it's older than
+    SYSTEM_HEARTBEAT_STALE_SECONDS (30s — several missed writes, not
+    one slightly-late one), the detection loop is genuinely stuck or
+    dead, NOT just idle waiting for motion (idle is normal; the loop
+    not running at all is not).
+
+    Returns {"healthy": bool, "last_alive_seconds_ago": float | None}.
+    If the heartbeat file doesn't exist at all (e.g. running an older
+    main.py that doesn't write it yet, or main.py has literally never
+    started), reports unhealthy rather than assuming the best —
+    "we don't know" must never be displayed as "everything's fine".
+    """
+    if not os.path.exists(SYSTEM_HEARTBEAT_PATH):
+        return {"healthy": False, "last_alive_seconds_ago": None}
+    try:
+        mtime = os.path.getmtime(SYSTEM_HEARTBEAT_PATH)
+        age = time.time() - mtime
+        return {
+            "healthy": age < SYSTEM_HEARTBEAT_STALE_SECONDS,
+            "last_alive_seconds_ago": round(age, 1),
+        }
+    except Exception:
+        return {"healthy": False, "last_alive_seconds_ago": None}
 
 
 @app.post("/stranger/tag")

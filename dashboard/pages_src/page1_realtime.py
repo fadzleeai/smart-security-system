@@ -7,7 +7,7 @@ unsafe_allow_html=True. Door illustration uses pure CSS divs instead.
 """
 
 import streamlit as st
-from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable
+from data_source import get_system_state, get_ram_usage, get_alarm_status, is_pi_reachable, strip_markdown_indent
 
 # Door illustration theme colors — see _render_door() for why this needs
 # actual theme detection (components.html() renders in an isolated
@@ -178,7 +178,7 @@ def _render_door(is_open: bool, offline: bool = False):
 def _ram_bar(label: str, used_mb: int, total_mb: int, color: str = "#3b82f6"):
     pct = min(used_mb / total_mb * 100, 100)
     bar_color = "#ef4444" if pct > 80 else color
-    st.markdown(f"""
+    st.markdown(strip_markdown_indent(f"""
     <div style="margin-bottom:7px">
       <div class="label-secondary" style="display:flex;justify-content:space-between;
                   font-size:0.74rem;margin-bottom:2px">
@@ -189,7 +189,7 @@ def _ram_bar(label: str, used_mb: int, total_mb: int, color: str = "#3b82f6"):
                     border-radius:4px;"></div>
       </div>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 
 # ── Main render ───────────────────────────────────────────────────────────────

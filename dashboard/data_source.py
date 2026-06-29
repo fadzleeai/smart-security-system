@@ -83,6 +83,40 @@ THREAT_MAP = {
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def strip_markdown_indent(html: str) -> str:
+    """
+    CONFIRMED ROOT CAUSE (traced and fixed once already in app.py's
+    global CSS block, then found to ALSO affect page2_analytics.py's
+    timeline rendering — the SAME bug class in a second file that was
+    never connected to the first investigation): any multi-line
+    st.markdown(f\"\"\"...\"\"\") string written inside Python's own
+    indented code (a function, a for-loop, a with-block) inherits that
+    indentation on every line — often 8, 12, even 24+ spaces deep.
+    Markdown's spec treats ANY line indented 4+ spaces from a paragraph
+    start as a literal "indented code block", rendering it as plain
+    TEXT instead of interpreting it as HTML — even with
+    unsafe_allow_html=True set. This is exactly why a stray "</div>"
+    kept appearing as VISIBLE TEXT on Page 2's timeline: every line of
+    that f-string was indented 12-24 spaces (confirmed by direct
+    measurement), deep inside a for-loop inside a with-block.
+
+    Strips ALL leading whitespace from every line individually (not
+    textwrap.dedent()'s "common shared prefix" approach, which was
+    tried first for the app.py case and confirmed insufficient when a
+    string has multiple real nesting depths — see app.py's own comment
+    on this for the full history). HTML, like CSS, doesn't care about
+    leading whitespace for rendering, so this has zero visual effect
+    beyond fixing the actual bug.
+
+    Exported from data_source.py (not duplicated per-file) specifically
+    because this exact bug class could exist in ANY multi-line
+    st.markdown() call across the codebase that happens to sit inside
+    indented Python — centralizing the fix here means future page
+    files can reuse it rather than risk reintroducing the same bug.
+    """
+    return "\n".join(line.strip() if line.strip() else "" for line in html.split("\n"))
+
+
 def _safe_get(path: str):
     """
     GET request to Pi API.
@@ -456,16 +490,31 @@ def get_active_alert() -> dict:
     Single source of truth for "should the popup show right now," used
     by alert_popup.py regardless of which page is currently active.
 
-    Returns one of three shapes:
+    Returns one of four shapes:
       {"type": None}                                   — nothing active
+      {"type": "system_down", "seconds_ago": float | None}
       {"type": "stranger", "filename": ..., "img_url": ...}
       {"type": "door"}
 
-    Priority: a never-reviewed stranger takes priority over a stuck-open
-    door, since a specific unidentified person is generally the more
-    urgent thing for an owner to look at first. If neither condition is
-    true, or the Pi is unreachable, returns {"type": None} — the popup
-    must never show stale/fake alerts just because we can't reach the Pi.
+    Priority order, highest first:
+      1. system_down — if main.py itself has crashed/hung, checking for
+         strangers or door status is meaningless (the data would be
+         stale anyway), so this is checked FIRST, before anything else.
+      2. stranger — a specific unidentified person is generally the more
+         urgent thing for an owner to look at next.
+      3. door — checked last.
+    If none are true, or the Pi is genuinely unreachable at the network
+    level, returns {"type": None} — the popup must never show stale/
+    fake alerts just because we can't reach the Pi at all.
+
+    URGENT FIX, per explicit conversation: previously, if main.py
+    crashed while pi_server.py (a SEPARATE OS process) was still
+    running fine, is_pi_reachable() would report True — the network
+    connection to the Pi genuinely works — while the actual detection
+    system was silently dead with nobody told. This system_down check
+    deliberately runs even when is_pi_reachable() is True, since that
+    check alone can't distinguish "main.py is fine" from "main.py
+    crashed but pi_server.py didn't".
 
     BUG FIX: previously checked /state's last_visitor_img, which only
     ever reflects the SINGLE MOST RECENT visitor row. An authorized
@@ -479,16 +528,49 @@ def get_active_alert() -> dict:
     if not is_pi_reachable():
         return {"type": None}
 
+    health_resp = _safe_get("/system/health")
+    if health_resp is not None:
+        try:
+            health = health_resp.json()
+            if not health.get("healthy", True):
+                return {
+                    "type": "system_down",
+                    "seconds_ago": health.get("last_alive_seconds_ago"),
+                }
+        except Exception:
+            pass
+
     resp = _safe_get("/stranger/pending")
     if resp is not None:
         try:
             pending_filename = resp.json().get("filename")
             if pending_filename:
-                return {
-                    "type":     "stranger",
-                    "filename": pending_filename,
-                    "img_url":  _pi_image_url(pending_filename),
-                }
+                # NEW, per explicit feedback: only show the popup if the
+                # stranger is GENUINELY still in camera view right now —
+                # previously this would keep reappearing until manually
+                # tagged regardless of whether the person had walked
+                # away. /stranger/currently-present reads a heartbeat
+                # main.py writes every frame an unrecognized face is
+                # detected; checking it here means the popup stops on
+                # its own once they're gone, even if never tagged — the
+                # photo still sits untouched in /stranger/pending for
+                # later manual review, this only affects whether the
+                # INTERRUPTING popup shows right now, not the underlying
+                # data.
+                presence_resp = _safe_get("/stranger/currently-present")
+                is_present = False
+                if presence_resp is not None:
+                    try:
+                        is_present = bool(presence_resp.json().get("present", False))
+                    except Exception:
+                        is_present = False
+
+                if is_present:
+                    return {
+                        "type":     "stranger",
+                        "filename": pending_filename,
+                        "img_url":  _pi_image_url(pending_filename),
+                    }
         except Exception:
             pass
 
@@ -722,9 +804,21 @@ def get_full_logs() -> pd.DataFrame:
             lambda x: THREAT_MAP.get(str(x).strip(), "None")
         )
 
-        # Motion column — door open = motion 
-        motion_display = df["event_type"].apply( lambda x: True if str(x) in ("visitor", "door") else False ) 
-        out = pd.DataFrame({ "Timestamp": ts, "Visitor": df["visitor_name"].replace("", "—"), "Motion": motion_display, "Auth result": df["auth_result"].replace("", "—"), "Threat": threat_display, "Door": df["door_status"].replace("", "—"), "Confidence": pd.to_numeric(df["confidence"], errors="coerce").round(2), })
-        return out 
-    except Exception: 
+        # Motion column — door open = motion implied
+        motion_display = df["event_type"].apply(
+            lambda x: True if str(x) in ("visitor", "door") else False
+        )
+
+        out = pd.DataFrame({
+            "Timestamp":   ts,
+            "Visitor":     df["visitor_name"].replace("", "—"),
+            "Motion":      motion_display,
+            "Auth result": df["auth_result"].replace("", "—"),
+            "Threat":      threat_display,
+            "Door":        df["door_status"].replace("", "—"),
+            "Confidence":  pd.to_numeric(df["confidence"], errors="coerce").round(2),
+        })
+        return out
+
+    except Exception:
         return empty
