@@ -32,7 +32,7 @@ def _colour_result(val: str) -> str:
         return "background-color:#fee2e2; color:#991b1b; font-weight:600"
     if val == "Pending Authorization":
         return "background-color:#dbeafe; color:#1e40af; font-weight:600"
-    if val == "Reviewed — Unknown":
+    if val == "Reviewed — Stranger":
         return "background-color:#f3f4f6; color:#374151; font-weight:600"
     return ""
 
