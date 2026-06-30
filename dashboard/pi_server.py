@@ -602,10 +602,29 @@ def get_alerts_check():
     at all — only HOW it fetches the underlying data changes.
     """
     health = get_system_health()
+
+    # Computed UPFRONT, attached to every return path below — per
+    # confirmed bug: previously, door_alert was only ever reported when
+    # door was the WINNING alert type. If a stranger alert took priority
+    # (very plausible — this household generates frequent stranger
+    # detections, confirmed earlier in this project), the door's actual
+    # real status was invisible to the dashboard for as long as the
+    # stranger alert was active, even if the door was open the whole
+    # time. This meant the dashboard's transition-detection logic
+    # (alert_popup.py: "did the door just go from closed to open?")
+    # could be fooled into treating a CONTINUOUSLY open door as a fresh
+    # event the moment the stranger alert cleared and the door check
+    # resumed running — exactly backwards from what was needed. Now the
+    # real door state is always available, independent of which alert
+    # type ultimately "wins" the priority race below.
+    state = get_state()
+    door_is_open = bool(state.get("door_alert"))
+
     if not health.get("healthy", True):
         return {
             "type": "system_down",
             "seconds_ago": health.get("last_alive_seconds_ago"),
+            "door_open": door_is_open,
         }
 
     pending = get_pending_stranger()
@@ -628,13 +647,16 @@ def get_alerts_check():
         # every backlogged stranger is, by definition, no longer
         # present). Popups now stay open until the owner explicitly
         # acts — presence is no longer checked or returned here at all.
-        return {"type": "stranger", "filename": pending_filename}
+        return {
+            "type": "stranger",
+            "filename": pending_filename,
+            "door_open": door_is_open,
+        }
 
-    state = get_state()
-    if state.get("door_alert"):
-        return {"type": "door"}
+    if door_is_open:
+        return {"type": "door", "door_open": True}
 
-    return {"type": None}
+    return {"type": None, "door_open": False}
 
 
 @app.post("/stranger/tag")
