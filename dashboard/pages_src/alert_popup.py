@@ -10,15 +10,20 @@ DESIGN NOTES (so future edits don't accidentally break the intent):
 
 - True zero-delay push from hardware to browser is NOT possible in
   Streamlit (confirmed, not a missing feature on our end — Streamlit
-  only reruns on user interaction or a forced timer). This file uses
-  st_autorefresh at a 3-second interval as the closest practical
-  approximation. If st_autorefresh isn't installed, the popup still
-  works correctly on every normal interaction — it just won't appear
-  on its own between clicks, only after the next click.
+  only reruns on user interaction or a forced timer). render_alert_popup()
+  is wrapped in @st.fragment(run_every=3) — a 3-second interval is the
+  closest practical approximation. UPDATED: previously used the
+  st_autorefresh third-party package, which forced Streamlit's ENTIRE
+  script to rerun every 3s (including whichever page was active,
+  causing real, confirmed page-switch lag). @st.fragment(run_every=...)
+  is Streamlit's own, current, stable built-in for exactly this —
+  isolates the rerun to just this function, leaving the rest of the
+  app untouched. No third-party dependency needed anymore.
 
 - Uses st.dialog (stable as of Streamlit 1.37+, NOT st.modal or a
   third-party package) — requirements.txt must specify
-  streamlit>=1.37.0 for this to exist at all.
+  streamlit>=1.37.0 for this to exist at all. st.fragment was
+  introduced in that same version, so no separate version floor needed.
 
 - Stranger popup takes priority over door-open popup if both are active
   at once — see get_active_alert()'s docstring in data_source.py for why.
@@ -27,12 +32,6 @@ DESIGN NOTES (so future edits don't accidentally break the intent):
 import time
 import streamlit as st
 from data_source import get_active_alert, tag_stranger, stop_alarm
-
-try:
-    from streamlit_autorefresh import st_autorefresh
-    _AUTOREFRESH_AVAILABLE = True
-except ImportError:
-    _AUTOREFRESH_AVAILABLE = False
 
 # How many filenames to remember at once for session-dismiss and
 # in-progress tracking. Previously each distinct stranger filename
@@ -327,14 +326,35 @@ def _system_down_dialog(seconds_ago):
         st.rerun()
 
 
+@st.fragment(run_every=3)
 def render_alert_popup():
     """
     Call this once from app.py, before rendering the active page.
     Checks get_active_alert() and opens the matching dialog if needed.
-    """
-    if _AUTOREFRESH_AVAILABLE:
-        st_autorefresh(interval=3000, key="alert_popup_autorefresh")
 
+    PERFORMANCE FIX, per explicit feedback ("repeatedly refresh the page
+    making switching pages a little bit lagging"): previously used
+    st_autorefresh(interval=3000) — but that forces Streamlit's ENTIRE
+    script to rerun from top to bottom every 3 seconds, not just this
+    alert-checking logic. That meant whichever page was currently
+    active (Page 1/2/3) ALSO fully re-executed and re-fetched its own
+    data every 3 seconds, on top of the alert check itself — if a nav
+    click landed while one of these full reruns was mid-flight, the
+    click had to wait for it to finish first, a real structural cause
+    of the felt lag, not just perception.
+
+    @st.fragment(run_every=3) (confirmed current, stable Streamlit API,
+    introduced in 1.37 — same version floor already required for
+    st.dialog elsewhere in this file, no new dependency needed) isolates
+    this function so ONLY it reruns every 3 seconds — the rest of the
+    app, including whichever page is currently displayed, is left
+    completely untouched until the user actually interacts with it.
+    This preserves the exact same alert responsiveness (still checks
+    every 3s) while removing the full-page rerun that was the actual
+    cause of the lag. The streamlit_autorefresh package is no longer
+    imported or used anywhere in this file at all — fully replaced by
+    Streamlit's own built-in st.fragment mechanism.
+    """
     alert = get_active_alert()
 
     if alert["type"] == "system_down":
