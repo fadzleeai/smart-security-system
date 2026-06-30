@@ -357,6 +357,28 @@ def render_alert_popup():
     """
     alert = get_active_alert()
 
+    # Door transition detection — uses door_open, an INDEPENDENT field
+    # now returned on every alert type (not just when type=="door"),
+    # confirmed necessary because the alert TYPE alone can't reliably
+    # signal this: if a stranger alert takes priority while the door is
+    # ALSO open (a real, plausible scenario in a household with frequent
+    # stranger detections), type would show "stranger" the whole time —
+    # checking transitions based on type=="door" specifically would
+    # then wrongly treat the door as "freshly opened" the moment the
+    # stranger alert cleared and door became the visible type again,
+    # even though the door had been continuously open the entire time.
+    door_is_open_now = bool(alert.get("door_open", False))
+    was_door_alert_active = st.session_state.get("_door_alert_was_active", False)
+    if door_is_open_now and not was_door_alert_active:
+        # Door just transitioned from closed to open — a genuinely
+        # fresh event. CONFIRMED BUG, traced via real-world testing:
+        # without this reset, a SECOND door-open event (after the first
+        # was closed and dismissed) would stay silently suppressed by
+        # the FIRST event's leftover 5-minute cooldown, since the old
+        # logic had no way to know the door had closed in between.
+        st.session_state.pop("_door_popup_dismissed_at", None)
+    st.session_state["_door_alert_was_active"] = door_is_open_now
+
     if alert["type"] == "system_down":
         acked_at = st.session_state.get("_system_down_acked_at")
         cooldown_active = (
@@ -374,12 +396,14 @@ def render_alert_popup():
     elif alert["type"] == "door":
         # Cooldown check, per explicit feedback: only show this dialog
         # again if DOOR_POPUP_COOLDOWN_SECONDS have genuinely passed
-        # since the last time Stop Alert was clicked — fixes the
-        # instant-reopen bug where clicking the button looked like it
-        # "did nothing" (it correctly closed, then immediately reopened
-        # on the very next 3s poll, since the physical door hadn't had
-        # time to actually close). dismissed_at being unset (first time
-        # ever) means no cooldown is active yet — show immediately.
+        # since the last time Stop Alert was clicked WITHIN THE SAME
+        # continuous open event — fixes the instant-reopen bug where
+        # clicking the button looked like it "did nothing" (it correctly
+        # closed, then immediately reopened on the very next 3s poll,
+        # since the physical door hadn't had time to actually close).
+        # dismissed_at being unset (first time ever, OR just cleared
+        # above because this is a fresh event) means no cooldown is
+        # active yet — show immediately.
         dismissed_at = st.session_state.get("_door_popup_dismissed_at")
         cooldown_active = (
             dismissed_at is not None
