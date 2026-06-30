@@ -77,18 +77,6 @@ SYSTEM_HEARTBEAT_STALE_SECONDS = 30
 STRANGER_PRESENCE_WINDOW_SECONDS = 5
 REVIEWED_STRANGERS_PATH = os.path.join(BASE_DIR, "reviewed_strangers.json")
 
-# How far back /stranger/pending looks for an unreviewed stranger to pop
-# up about, per explicit feedback: previously had NO time limit at all,
-# scanning the entire CSV history — meant old backlogged strangers from
-# hours or days ago would interrupt the user one at a time, feeling like
-# an endless queue. This is DELIBERATELY a different (much wider) window
-# than STRANGER_PRESENCE_WINDOW_SECONDS above — that one is about "is
-# someone in frame RIGHT NOW" (seconds), this one is "is this detection
-# recent enough to still be worth an interrupting popup" (minutes) —
-# they answer genuinely different questions, not the same thing at two
-# different granularities.
-PENDING_STRANGER_WINDOW_MINUTES = 7
-
 # How recent a detection event must be (in seconds) to count as "motion
 # detected right now" / camera "Active" on the dashboard. Anything older
 # just means nothing has happened recently, not that hardware is broken.
@@ -407,6 +395,9 @@ def get_reviewed_strangers():
     return {"reviewed": sorted(_load_reviewed_set())}
 
 
+MAX_PENDING_STRANGERS_FOR_POPUP = 5
+
+
 @app.get("/stranger/pending")
 def get_pending_stranger():
     """
@@ -417,23 +408,24 @@ def get_pending_stranger():
     nobody ever reviewed them. This endpoint fixes that by scanning ALL
     Denied rows with a photo, not just the latest row.
 
-    SECOND FIX, per explicit feedback: previously scanned the ENTIRE CSV
-    history with no time limit — if a backlog of unreviewed strangers
-    built up (very plausible, given the per-location cooldown bug fixed
-    earlier in this project meant some strangers were silently never
-    even saved, and others simply accumulate over days), the popup would
-    work through OLD entries from hours or days ago, one at a time,
-    feeling like an endless queue of past, no-longer-relevant alerts.
-    Now ONLY considers rows from the last PENDING_STRANGER_WINDOW_MINUTES
-    — anything older is treated as "too stale to interrupt the user
-    about now" and silently skipped here (it's NOT deleted or hidden
-    anywhere else — still fully visible in the Page 2 gallery and Page 3
-    audit log, this only affects what triggers the INTERRUPTING popup).
-    Also switched from oldest-first to MOST RECENT within that window,
-    since within a short time window the newest detection is the one
-    actually relevant to "what's happening right now".
+    SECOND FIX, per explicit feedback: only the MAX_PENDING_STRANGERS_
+    FOR_POPUP (5) most recent unreviewed strangers are ever eligible to
+    be shown via the interrupting popup — replaces an earlier time-based
+    (minutes) attempt, since the real complaint was about COUNT ("too
+    many photos need verifying"), not age specifically. Anything beyond
+    the 5 most recent gets auto-tagged here as reviewed (see
+    _auto_tag_excess_pending() below) rather than silently lingering
+    forever as an ever-growing unreachable backlog — confirmed via
+    real-world testing that a backlog WAS accumulating (100+ entries
+    found in reviewed_strangers.json from legitimate per-location-
+    cooldown saves of lingering visitors). Auto-tagged entries are NOT
+    deleted or hidden anywhere else — still fully visible in the Page 2
+    gallery and Page 3 audit log with their real original threat level
+    preserved (Suspicious/Warning), this only affects what's eligible
+    for the INTERRUPTING popup specifically.
 
-    Returns {"filename": None} if there's nothing unreviewed AND recent.
+    Returns {"filename": None} if there's nothing unreviewed pending
+    within the 5-most-recent window.
     """
     if not os.path.exists(CSV_PATH):
         return {"filename": None}
@@ -445,11 +437,9 @@ def get_pending_stranger():
         return {"filename": None}
 
     reviewed = _load_reviewed_set()
-    now = datetime.now()
 
-    # Walk newest-first (reverse the chronological CSV order) and return
-    # the first unreviewed, sufficiently-recent match — this is what
-    # makes it "most recent" rather than "oldest" within the window.
+    # Collect ALL unreviewed candidates, newest-first.
+    unreviewed_newest_first = []
     for row in reversed(rows):
         if row.get("event_type") != "visitor":
             continue
@@ -461,28 +451,59 @@ def get_pending_stranger():
         basename = os.path.basename(img_file)
         if basename in reviewed:
             continue
+        unreviewed_newest_first.append(basename)
 
-        timestamp_str = row.get("timestamp", "")
-        try:
-            row_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            # Malformed/unparseable timestamp — skip rather than guess,
-            # same defensive principle used elsewhere in this codebase
-            # (a row we can't confidently date shouldn't interrupt the
-            # user with uncertain freshness).
-            continue
+    if not unreviewed_newest_first:
+        return {"filename": None}
 
-        age_minutes = (now - row_time).total_seconds() / 60
-        if age_minutes > PENDING_STRANGER_WINDOW_MINUTES:
-            # Rows are walked newest-first, so once we hit one this old,
-            # everything BEFORE it (even older) would fail this same
-            # check too — safe to stop scanning entirely here rather
-            # than checking every remaining older row for no reason.
-            break
+    # Anything beyond the 5 most recent gets auto-tagged now, so it
+    # stops growing the backlog and won't be re-scanned on the next call.
+    excess = unreviewed_newest_first[MAX_PENDING_STRANGERS_FOR_POPUP:]
+    if excess:
+        _auto_tag_excess_pending(excess, rows)
 
-        return {"filename": basename}
+    return {"filename": unreviewed_newest_first[0]}
 
-    return {"filename": None}
+
+def _auto_tag_excess_pending(filenames: list, rows: list) -> None:
+    """
+    Marks each filename in `filenames` as reviewed, appending a CSV row
+    for each that preserves the ORIGINAL detection's real threat level
+    (Suspicious/Warning) rather than discarding it — per explicit
+    decision: excess backlog entries should be treated as their actual
+    original risk classification (the system already computed this at
+    detection time), not silently downgraded to "None"/unclassified
+    just because nobody got to review them individually within the
+    popup's 5-slot window.
+    """
+    reviewed = _load_reviewed_set()
+    threat_by_filename = {}
+    for row in rows:
+        basename = os.path.basename(row.get("img_file", ""))
+        if basename and row.get("auth_result") == "DENIED":
+            threat_by_filename[basename] = row.get("threat_level", "")
+
+    try:
+        import fcntl
+        with open(CSV_PATH, "a") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                for fname in filenames:
+                    threat = threat_by_filename.get(fname, "")
+                    f.write(f"{timestamp},visitor,Stranger,unknown_reviewed,{threat},,,{fname}\n")
+                    reviewed.add(fname)
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        _save_reviewed_set(reviewed)
+    except Exception:
+        pass  # genuinely fine to lose this auto-tag attempt silently —
+              # matches the rest of this file's exception-handling
+              # convention (silent pass, no logging dependency added
+              # just for this one function); worst case the same
+              # excess entries get re-attempted on the next call
 
 
 @app.get("/stranger/currently-present")
@@ -590,9 +611,24 @@ def get_alerts_check():
     pending = get_pending_stranger()
     pending_filename = pending.get("filename")
     if pending_filename:
-        presence = get_stranger_currently_present()
-        if presence.get("present", False):
-            return {"type": "stranger", "filename": pending_filename}
+        # CONFIRMED BUG, traced via real-world testing: this used to
+        # ALSO require get_stranger_currently_present() to be True
+        # before returning the stranger alert at all — meaning if the
+        # person had already walked away by the time the NEXT poll ran
+        # (extremely common: a popup takes a few seconds to notice,
+        # read, and act on, easily longer than the 5s presence window),
+        # an otherwise genuinely pending, unreviewed stranger would be
+        # silently skipped entirely — never shown, never popped up,
+        # despite being real and waiting for review.
+        #
+        # Per explicit decision: NO auto-close based on presence at
+        # all — these two behaviors were confirmed to fundamentally
+        # conflict (auto-closing on "not present" would silently
+        # recreate this exact bug for any backlogged item, since almost
+        # every backlogged stranger is, by definition, no longer
+        # present). Popups now stay open until the owner explicitly
+        # acts — presence is no longer checked or returned here at all.
+        return {"type": "stranger", "filename": pending_filename}
 
     state = get_state()
     if state.get("door_alert"):
@@ -641,6 +677,29 @@ def tag_stranger(filename: str, label: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Could not copy image: {e}")
 
+    # CONFIRMED BUG, traced via explicit user-reported confusion: this
+    # row previously always wrote threat_level as BLANK, regardless of
+    # the original detection's actual risk level — meaning a stranger
+    # detected as genuinely Suspicious/Warning would show "None" on
+    # this tag-action row, while the SEPARATE original detection row
+    # (never edited, by design — see docstring above) still correctly
+    # showed the real threat level. Both rows were individually
+    # accurate, but side by side this read as a contradiction
+    # ("Authorized" next to "Suspicious" for what looked like the same
+    # event). Now looks up the ORIGINAL detection row's threat_level
+    # for this same filename and carries it forward onto the tag row
+    # too, so the risk classification stays consistent across both
+    # rows instead of one silently going blank.
+    original_threat_level = ""
+    try:
+        with open(CSV_PATH, "r") as f:
+            for row in csv.DictReader(f):
+                if os.path.basename(row.get("img_file", "")) == safe_name:
+                    original_threat_level = row.get("threat_level", "")
+                    break
+    except Exception:
+        pass  # genuinely fine to leave blank if the original can't be found
+
     # Append a new CSV row recording this tag decision (does NOT edit the
     # original detection row — clean audit trail). Uses the SAME fcntl
     # locking scheme as main.py's write_log_row() — without this, this
@@ -657,7 +716,7 @@ def tag_stranger(filename: str, label: str):
                 if not file_exists:
                     f.write("timestamp,event_type,visitor_name,auth_result,threat_level,door_status,confidence,img_file\n")
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"{timestamp},visitor,Stranger,{label},,,,{safe_name}\n")
+                f.write(f"{timestamp},visitor,Stranger,{label},{original_threat_level},,,{safe_name}\n")
                 f.flush()
                 os.fsync(f.fileno())
             finally:
