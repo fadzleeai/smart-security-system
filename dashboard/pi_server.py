@@ -77,6 +77,18 @@ SYSTEM_HEARTBEAT_STALE_SECONDS = 30
 STRANGER_PRESENCE_WINDOW_SECONDS = 5
 REVIEWED_STRANGERS_PATH = os.path.join(BASE_DIR, "reviewed_strangers.json")
 
+# How far back /stranger/pending looks for an unreviewed stranger to pop
+# up about, per explicit feedback: previously had NO time limit at all,
+# scanning the entire CSV history — meant old backlogged strangers from
+# hours or days ago would interrupt the user one at a time, feeling like
+# an endless queue. This is DELIBERATELY a different (much wider) window
+# than STRANGER_PRESENCE_WINDOW_SECONDS above — that one is about "is
+# someone in frame RIGHT NOW" (seconds), this one is "is this detection
+# recent enough to still be worth an interrupting popup" (minutes) —
+# they answer genuinely different questions, not the same thing at two
+# different granularities.
+PENDING_STRANGER_WINDOW_MINUTES = 7
+
 # How recent a detection event must be (in seconds) to count as "motion
 # detected right now" / camera "Active" on the dashboard. Anything older
 # just means nothing has happened recently, not that hardware is broken.
@@ -403,11 +415,25 @@ def get_pending_stranger():
     unreviewed stranger, /state's last_visitor_img goes back to None —
     the stranger silently vanishes from the popup system even though
     nobody ever reviewed them. This endpoint fixes that by scanning ALL
-    Denied rows with a photo, not just the latest row, and returning the
-    OLDEST unreviewed one (so strangers get worked through in the order
-    they appeared, not just whichever happened to be most recent).
+    Denied rows with a photo, not just the latest row.
 
-    Returns {"filename": None} if there's nothing unreviewed pending.
+    SECOND FIX, per explicit feedback: previously scanned the ENTIRE CSV
+    history with no time limit — if a backlog of unreviewed strangers
+    built up (very plausible, given the per-location cooldown bug fixed
+    earlier in this project meant some strangers were silently never
+    even saved, and others simply accumulate over days), the popup would
+    work through OLD entries from hours or days ago, one at a time,
+    feeling like an endless queue of past, no-longer-relevant alerts.
+    Now ONLY considers rows from the last PENDING_STRANGER_WINDOW_MINUTES
+    — anything older is treated as "too stale to interrupt the user
+    about now" and silently skipped here (it's NOT deleted or hidden
+    anywhere else — still fully visible in the Page 2 gallery and Page 3
+    audit log, this only affects what triggers the INTERRUPTING popup).
+    Also switched from oldest-first to MOST RECENT within that window,
+    since within a short time window the newest detection is the one
+    actually relevant to "what's happening right now".
+
+    Returns {"filename": None} if there's nothing unreviewed AND recent.
     """
     if not os.path.exists(CSV_PATH):
         return {"filename": None}
@@ -419,10 +445,12 @@ def get_pending_stranger():
         return {"filename": None}
 
     reviewed = _load_reviewed_set()
+    now = datetime.now()
 
-    # Oldest-first: rows are already in the order they were appended
-    # (chronological), so the first unreviewed match found IS the oldest.
-    for row in rows:
+    # Walk newest-first (reverse the chronological CSV order) and return
+    # the first unreviewed, sufficiently-recent match — this is what
+    # makes it "most recent" rather than "oldest" within the window.
+    for row in reversed(rows):
         if row.get("event_type") != "visitor":
             continue
         if row.get("auth_result") != "DENIED":
@@ -433,6 +461,25 @@ def get_pending_stranger():
         basename = os.path.basename(img_file)
         if basename in reviewed:
             continue
+
+        timestamp_str = row.get("timestamp", "")
+        try:
+            row_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            # Malformed/unparseable timestamp — skip rather than guess,
+            # same defensive principle used elsewhere in this codebase
+            # (a row we can't confidently date shouldn't interrupt the
+            # user with uncertain freshness).
+            continue
+
+        age_minutes = (now - row_time).total_seconds() / 60
+        if age_minutes > PENDING_STRANGER_WINDOW_MINUTES:
+            # Rows are walked newest-first, so once we hit one this old,
+            # everything BEFORE it (even older) would fail this same
+            # check too — safe to stop scanning entirely here rather
+            # than checking every remaining older row for no reason.
+            break
+
         return {"filename": basename}
 
     return {"filename": None}
@@ -503,6 +550,55 @@ def get_system_health():
         }
     except Exception:
         return {"healthy": False, "last_alive_seconds_ago": None}
+
+
+@app.get("/alerts/check")
+def get_alerts_check():
+    """
+    PERFORMANCE FIX, per explicit conversation: the dashboard's
+    get_active_alert() (data_source.py) was previously making UP TO
+    FOUR SEPARATE, SEQUENTIAL HTTP requests every single 3-second poll
+    — /system/health, /stranger/pending, /stranger/currently-present,
+    and /state (for the door check) — each going through the Cloudflare
+    tunnel, each waiting for the previous to finish before starting.
+    At REQUEST_TIMEOUT=5s each, a genuinely slow tunnel moment could
+    mean up to 20 seconds before a single poll cycle even completed,
+    contributing directly to the "popup feels laggy/disconnected from
+    what the hardware is actually doing" complaint.
+
+    This endpoint computes the SAME four checks server-side, where
+    they're all local filesystem reads anyway (no network hop needed
+    between them once they're in the same Pi process) — collapsing
+    four round-trips into one. Calls the EXISTING endpoint functions
+    directly (FastAPI route functions are still plain callable Python
+    functions underneath) rather than re-implementing their logic, so
+    there's exactly one source of truth for each check's actual rules
+    — this endpoint is a thin combiner, not a parallel reimplementation
+    that could drift out of sync with the individual endpoints over time.
+
+    Returns the same shape get_active_alert() already builds, so
+    data_source.py's actual alert-priority logic doesn't need to change
+    at all — only HOW it fetches the underlying data changes.
+    """
+    health = get_system_health()
+    if not health.get("healthy", True):
+        return {
+            "type": "system_down",
+            "seconds_ago": health.get("last_alive_seconds_ago"),
+        }
+
+    pending = get_pending_stranger()
+    pending_filename = pending.get("filename")
+    if pending_filename:
+        presence = get_stranger_currently_present()
+        if presence.get("present", False):
+            return {"type": "stranger", "filename": pending_filename}
+
+    state = get_state()
+    if state.get("door_alert"):
+        return {"type": "door"}
+
+    return {"type": None}
 
 
 @app.post("/stranger/tag")
