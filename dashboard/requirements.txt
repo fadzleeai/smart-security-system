@@ -1,10 +1,24 @@
-# requirements.txt - STREAMLIT CLOUD / CODESPACE SIDE
-# This installs everything app.py, page1_realtime.py, page2_analytics.py, page3_logs.py, alert_popup.py, and data_source.py actually import. Checked directly against the real import statements in each file.
-# streamlit>=1.37.0 - st.dialog (used by alert_popup.py) was introduced # in 1.37; the previous >=1.35.0 floor would not guarantee it exists.
-# Does NOT include main.py / pi_server.py dependencies (fastapi, uvicorn, # opencv-python, face_recognition, RPi.GPIO, etc) - those run on the Pi # only, never on Streamlit Cloud or in this Codespace dashboard environment.
+# requirements.txt — STREAMLIT CLOUD / CODESPACE SIDE
+#
+# This installs everything app.py, page1_realtime.py, page2_analytics.py,
+# page3_logs.py, alert_popup.py, and data_source.py actually import.
+# Checked directly against the real import statements in each file.
+#
+# streamlit>=1.37.0 — st.dialog AND st.fragment (both used by
+# alert_popup.py) were introduced in 1.37; the previous >=1.35.0 floor
+# would not guarantee either exists.
+#
+# streamlit-autorefresh REMOVED — genuinely no longer imported anywhere
+# in this codebase. Replaced by @st.fragment(run_every=3), Streamlit's
+# own built-in mechanism, which fixed a real, confirmed page-switch lag
+# bug the third-party autorefresh approach caused (it forced the ENTIRE
+# app to rerun every 3s, not just the alert-check logic).
+#
+# Does NOT include main.py / pi_server.py dependencies (fastapi, uvicorn,
+# opencv-python, face_recognition, RPi.GPIO, etc) — those run on the Pi
+# only, never on Streamlit Cloud or in this Codespace dashboard environment.
 
 streamlit>=1.37.0
-streamlit-autorefresh>=1.0.1
 pandas>=2.0.0
 plotly>=5.18.0
 requests>=2.31.0
