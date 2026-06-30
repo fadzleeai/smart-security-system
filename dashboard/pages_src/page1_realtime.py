@@ -194,13 +194,27 @@ def _ram_bar(label: str, used_mb: int, total_mb: int, color: str = "#3b82f6"):
 
 # ── Main render ───────────────────────────────────────────────────────────────
 
+@st.fragment(run_every=5)
 def render():
-    # ── REAL DATA SWAP ──────────────────────────────────────────────────────
-    # For live auto-refresh every 5 seconds, add these two lines at the top:
-    #   from streamlit_autorefresh import st_autorefresh
-    #   st_autorefresh(interval=5000, key="rt_refresh")
-    # Then install: pip install streamlit-autorefresh
-    # ────────────────────────────────────────────────────────────────────────
+    """
+    PERFORMANCE FIX, per explicit feedback: after removing the old
+    st_autorefresh-based full-app rerun (which fixed a real page-switch
+    lag bug, but as a side effect also stopped silently refreshing this
+    page's own live content — door status, RAM, sensor health — since
+    those previously only updated as an unintended side effect of the
+    POPUP's timer dragging the whole app along with it), this page felt
+    "less sensitive"/less live. The actual fix is giving THIS page its
+    own independent live-refresh, scoped ONLY to itself via
+    @st.fragment(run_every=5) — confirmed current, stable Streamlit API
+    (same one used for the alert popup) — so it reruns every 5 seconds
+    on its own, completely independent of whichever OTHER page might be
+    active, with zero risk of recreating the original lag (Page 2/3
+    are simply never touched by this fragment at all, since fragments
+    only rerun their own function, not the surrounding app).
+    5s interval matches the original leftover comment below documenting
+    this exact intended interval, which had apparently never actually
+    been implemented despite being planned.
+    """
     state = get_system_state()
     ram   = get_ram_usage()
 
