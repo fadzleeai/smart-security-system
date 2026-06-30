@@ -560,9 +560,10 @@ def get_active_alert() -> dict:
             if result.get("type") == "stranger":
                 filename = result.get("filename")
                 return {
-                    "type":     "stranger",
-                    "filename": filename,
-                    "img_url":  _pi_image_url(filename) if filename else None,
+                    "type":      "stranger",
+                    "filename":  filename,
+                    "img_url":   _pi_image_url(filename) if filename else None,
+                    "door_open": result.get("door_open", False),
                 }
             return result
         except Exception:
