@@ -327,22 +327,35 @@ def get_system_state() -> dict:
     # snapshot — if an authorized visitor (no photo) walked in after an
     # unreviewed stranger, this went back to None and Page 1's "Latest
     # visitor capture" card went blank, even though a real unreviewed
-    # stranger photo still existed. This is the EXACT same root cause
-    # already fixed for the alert popup via /stranger/pending (which
-    # scans ALL recent Denied rows for the oldest unreviewed one) — that
-    # fix was never applied here too. Now checks /stranger/pending FIRST;
-    # only falls back to /state's snapshot if there's no pending stranger,
-    # so an authorized visitor's most recent event correctly still shows
-    # via the original path when there's genuinely nothing stranger-side
-    # to display.
+    # stranger photo still existed.
+    #
+    # SECOND FIX, confirmed via real-world testing: this used to call
+    # /stranger/pending — but that endpoint was later given a 7-minute
+    # time window specifically for the INTERRUPTING POPUP's needs (per
+    # explicit feedback that old backlogged strangers shouldn't keep
+    # popping up). Page 1's "latest visitor capture" card has a
+    # genuinely DIFFERENT requirement — it should always show the most
+    # recent photo regardless of how long ago it was taken, the same
+    # way Page 2's gallery already correctly does. Sharing one endpoint
+    # for both purposes meant fixing the popup's time window broke this
+    # card instead (confirmed: Page 2 kept showing the new photo
+    # correctly since it reads /images-list directly, completely
+    # unaffected by the popup-specific change — only Page 1 broke).
+    # Now reads /images-list directly too — same data source Page 2's
+    # gallery already uses, with NO time restriction, just "what's the
+    # most recent stranger photo on disk".
     raw_img = None
     if pi_reachable:
-        resp = _safe_get("/stranger/pending")
+        resp = _safe_get("/images-list")
         if resp is not None:
             try:
-                pending_filename = resp.json().get("filename")
-                if pending_filename:
-                    raw_img = pending_filename
+                image_files = resp.json().get("images", [])
+                if image_files:
+                    # Alphabetical sort == chronological for this
+                    # filename pattern (stranger_YYYYMMDD_HHMMSS_*),
+                    # confirmed earlier in this project — last item is
+                    # genuinely the most recent photo on disk.
+                    raw_img = sorted(image_files)[-1]
             except Exception:
                 pass
     if not raw_img:
@@ -527,6 +540,33 @@ def get_active_alert() -> dict:
     """
     if not is_pi_reachable():
         return {"type": None}
+
+    # PERFORMANCE FIX, per explicit conversation: previously made up to
+    # FOUR separate sequential HTTP calls every 3-second poll
+    # (/system/health, /stranger/pending, /stranger/currently-present,
+    # /state) — each a real round-trip over the Cloudflare tunnel,
+    # waiting on the previous to finish. Now tries the single
+    # consolidated /alerts/check endpoint first (one round-trip,
+    # computed server-side where these are just local file reads).
+    # Falls back to the old multi-call sequence ONLY if that endpoint
+    # isn't available — e.g. the Pi is still running an older
+    # pi_server.py that hasn't been redeployed with this update yet —
+    # so this doesn't hard-break for anyone who updates one side
+    # without the other.
+    combined_resp = _safe_get("/alerts/check")
+    if combined_resp is not None:
+        try:
+            result = combined_resp.json()
+            if result.get("type") == "stranger":
+                filename = result.get("filename")
+                return {
+                    "type":     "stranger",
+                    "filename": filename,
+                    "img_url":  _pi_image_url(filename) if filename else None,
+                }
+            return result
+        except Exception:
+            pass  # fall through to the old per-endpoint sequence below
 
     health_resp = _safe_get("/system/health")
     if health_resp is not None:
