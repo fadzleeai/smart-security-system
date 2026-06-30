@@ -520,7 +520,25 @@ def main():
 
     scanning_active = False
     last_detection_time = 0
-    last_stranger_save = 0
+    # BUGFIX, confirmed via real-world testing: this was previously a
+    # single global timestamp (last_stranger_save = 0), shared across
+    # EVERY unrecognized face — meaning if Stranger A triggered a save,
+    # a genuinely DIFFERENT Stranger B showing up within
+    # STRANGER_SAVE_INTERVAL_SECONDS would be silently skipped entirely
+    # (no photo, no CSV row, no popup), even though the speaker still
+    # announced them. There's no real face-matching for unrecognized
+    # people (every unknown face shares the literal name "Unknown" —
+    # confirmed in face_recognition_engine.py), so true per-identity
+    # tracking isn't available without building real embedding-based
+    # matching (a separate, larger feature, deliberately not built here
+    # per explicit scoping discussion). As an honest middle ground,
+    # this keys the cooldown by rough screen LOCATION instead — each
+    # detection's bounding box is rounded into a coarse grid cell, and
+    # only saves matching THAT cell's own cooldown are skipped. Two
+    # people standing in genuinely different parts of the frame get
+    # independent cooldowns; the same lingering person moving slightly
+    # still correctly maps to the same cell.
+    last_stranger_save_by_location = {}
     current_results = []
     spoken_this_frame = set()
     entry_lockout = threading.Event()  # set = system paused waiting for door open+close
@@ -668,9 +686,29 @@ def main():
                                 logger.error(f"[HEARTBEAT] Failed to write: {e}")
 
                             now = time.time()
-                            if now - last_stranger_save > STRANGER_SAVE_INTERVAL_SECONDS:
+                            # Round the face's bounding box into a coarse
+                            # grid cell (100px) — this is a deliberate
+                            # approximation, not true identity matching:
+                            # two clearly different people standing apart
+                            # get different cells (independent cooldowns,
+                            # confirmed fix for the silent-skip bug), but
+                            # this can't distinguish two strangers who
+                            # happen to stand in roughly the same spot
+                            # one after another — that genuinely needs
+                            # real face-embedding comparison, which was
+                            # explicitly scoped out as a larger, separate
+                            # feature in this same conversation.
+                            top, right, bottom, left = result["location"]
+                            cell_size = 100
+                            location_key = (
+                                round(top / cell_size),
+                                round(left / cell_size),
+                            )
+                            last_saved_at = last_stranger_save_by_location.get(location_key, 0)
+
+                            if now - last_saved_at > STRANGER_SAVE_INTERVAL_SECONDS:
                                 saved_filename = save_stranger(frame, result["risk"], logger)
-                                last_stranger_save = now
+                                last_stranger_save_by_location[location_key] = now
                                 if saved_filename:
                                     write_log_row(
                                         logger,
